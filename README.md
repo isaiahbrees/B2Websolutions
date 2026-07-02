@@ -56,6 +56,40 @@ or put the app behind something like Cloudflare Access — proper multi-user
 accounts are on the roadmap. If you expose it to the internet, run it behind
 HTTPS (Caddy, nginx, Cloudflare Tunnel) and set a strong `SESSION_SECRET`.
 
+## Deploying it (get a real URL, not localhost)
+
+**Heads up: Vercel/Netlify won't work for this app.** They run serverless
+functions that must respond in seconds, with no persistent processes or disk —
+this app keeps a render queue alive and spends minutes per video in headless
+Chrome. You need a host that runs a long-lived server. The included
+`Dockerfile` makes that one click on:
+
+**Railway** (easiest):
+
+1. Go to [railway.com](https://railway.com) → **New Project** →
+   **Deploy from GitHub repo** → pick this repo and branch. It detects the
+   Dockerfile automatically.
+2. In the service's **Variables** tab, add `ADMIN_EMAIL`, `ADMIN_PASSWORD`,
+   `SESSION_SECRET` (any long random string), and your `FB_PAGE_ID` /
+   `FB_PAGE_ACCESS_TOKEN` (or `MAKE_WEBHOOK_URL`).
+3. **Settings → Networking → Generate Domain**. Open the URL, log in, make a
+   reel.
+
+**Render**: New → Web Service → connect the repo (runtime: Docker), add the
+same environment variables, pick at least the **2 GB RAM** instance — video
+rendering is hungry, 512 MB free-tier instances will fall over.
+
+Notes for hosted deploys:
+
+- Give the service **2 GB+ RAM and 2 vCPUs** for comfortable renders.
+- Job history lives on the container's disk (`out/jobs/`), which resets on
+  redeploy. Attach a volume mounted at `/app/out` if you want it to stick
+  around; finished videos are also posted/downloadable, so losing history is
+  cosmetic.
+- If you ever *do* want the Vercel-style serverless route, the play is
+  Remotion Lambda for rendering + a screenshot API for capture + S3 for
+  storage — a bigger rebuild, worth it only at real volume.
+
 ## CLI usage
 
 Full pipeline (capture + render, no posting):

@@ -84,15 +84,18 @@ export function checkLogin(req: Request, email: string, password: string): boole
   return ok;
 }
 
+// Hosted deploys sit behind HTTPS; localhost dev doesn't have it.
+const secureFlag = process.env.NODE_ENV === 'production' ? ' Secure;' : '';
+
 export function setSessionCookie(res: Response, token: string): void {
   res.setHeader(
     'Set-Cookie',
-    `session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86_400}`,
+    `session=${token}; HttpOnly;${secureFlag} SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86_400}`,
   );
 }
 
 export function clearSessionCookie(res: Response): void {
-  res.setHeader('Set-Cookie', 'session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+  res.setHeader('Set-Cookie', `session=; HttpOnly;${secureFlag} SameSite=Lax; Path=/; Max-Age=0`);
 }
 
 /** Protects /api/* — everything except login. */

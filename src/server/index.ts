@@ -18,6 +18,9 @@ const UI_DIR = fileURLToPath(new URL('./ui', import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 
 const app = express();
+// Railway/Render/fly put the app behind a reverse proxy; this makes req.ip
+// (login rate limiting) see the real client address.
+app.set('trust proxy', 1);
 app.use(express.json());
 
 // --- pages & assets ---
