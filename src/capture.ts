@@ -806,11 +806,13 @@ async function recordWork(
   browser: Awaited<ReturnType<typeof chromium.launch>>,
   mode: 'screencast' | 'legacy',
 ): Promise<ScrollVideoInfo | null> {
-  // Portrait viewport: the browser frame in a 9:16 reel should be TALL.
-  // 1600 wide matches how designs look on a real desktop — at 1440, sites
-  // tuned for wider screens crop their hero art at the right edge.
-  const VIEW_W = 1600;
-  const VIEW_H = 2000;
+  // Lay the page out at full desktop width (1920 — what the design was made
+  // for; anything narrower crops right-edge hero art on wide-tuned sites),
+  // but record scaled down to 1600x2000: same portrait frame, no extra cost.
+  const VIEW_W = 1920;
+  const VIEW_H = 2400;
+  const FRAME_W = 1600;
+  const FRAME_H = 2000;
   const context = await browser.newContext({
     viewport: { width: VIEW_W, height: VIEW_H },
     deviceScaleFactor: 1,
@@ -820,7 +822,7 @@ async function recordWork(
     // The legacy path records via Playwright's built-in 25fps recorder; the
     // screencast path streams compositor frames itself at up to 60fps.
     ...(mode === 'legacy'
-      ? { recordVideo: { dir: outDir, size: { width: VIEW_W, height: VIEW_H } } }
+      ? { recordVideo: { dir: outDir, size: { width: FRAME_W, height: FRAME_H } } }
       : {}),
   });
   const page = await context.newPage();
@@ -949,8 +951,9 @@ async function recordWork(
         await cdp.send('Page.startScreencast', {
           format: 'jpeg',
           quality: 92,
-          maxWidth: VIEW_W,
-          maxHeight: VIEW_H,
+          // Chromium scales the 1920x2400 layout into these frame bounds.
+          maxWidth: FRAME_W,
+          maxHeight: FRAME_H,
           everyNthFrame: 1,
         });
         await page.evaluate(tourScript);
@@ -987,8 +990,9 @@ async function recordWork(
     const info: ScrollVideoInfo = {
       file,
       prepSec: infoPrepSec,
-      viewportW: VIEW_W,
-      viewportH: VIEW_H,
+      // The template only uses the aspect ratio — report the frame dims.
+      viewportW: FRAME_W,
+      viewportH: FRAME_H,
       durationSec,
       stops: tour.stops,
     };
