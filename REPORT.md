@@ -79,6 +79,23 @@ kind. Every gate returns `{reason, upgradeTo}` → consistent upgrade modals.
 
 ## 7. Bugs & blockers found tonight
 
+- An adversarial review agent audited the full diff and found 15 issues —
+  **all fixed and regression-tested** in the follow-up commit. The two that
+  mattered: brand-kit logos/music were served behind login so the renderer
+  (which has no session cookie) could never load them, and switching
+  templates on re-render was silently inert because the old template's copy
+  was stored as if the user had typed it. Also fixed: posting failures no
+  longer mark a successful render as failed, plan gates (watermark/
+  resolution/60fps/template) are re-derived from the *current* plan on
+  re-renders and duplicates, upgrade prompts point one tier up, brand-kit
+  updates can't overwrite protected fields, an invalid `PLAN` env value
+  heals instead of erroring, old projects get delivery-link tokens
+  backfilled, and the default render props no longer contain a third-party
+  brand name.
+- The dead-ended music surface was resolved per the no-fake-features rule:
+  the wizard now has a music picker fed by tracks uploaded in Assets
+  (wired end-to-end into the render), and the decorative brand-kit
+  "music preference" control was removed.
 - `[hidden]` attribute was overridden by component CSS (empty states showed
   wrongly) — fixed globally in the design system.
 - Scene timeline initially used placeholder durations — now reads
