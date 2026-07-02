@@ -15,6 +15,9 @@ export type CaptureOptions = {
   /** Hard budget for the whole capture — the last line of defense; every
    * individual step is also bounded so one stuck site never blocks the queue. */
   watchdogMs?: number;
+  /** Software WebGL renders three.js scenes but is memory-hungry; lite
+   * retries turn it off to survive on small containers. */
+  webgl?: boolean;
 };
 
 const DEFAULTS: Required<CaptureOptions> = {
@@ -25,6 +28,7 @@ const DEFAULTS: Required<CaptureOptions> = {
   deviceScaleFactor: 1.5,
   timeoutMs: 40_000,
   watchdogMs: 150_000,
+  webgl: true,
 };
 
 /** Read width/height straight out of a JPEG's SOF marker. */
@@ -197,16 +201,17 @@ export async function captureSite(
     return await attemptCapture(url, outDir, { ...DEFAULTS, ...options });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!/crashed|Target closed|Page closed|browser has disconnected|watchdog/i.test(msg)) {
+    if (!/crashed|closed|disconnected|watchdog/i.test(msg)) {
       throw err;
     }
-    log(`capture failed on ${url} (${msg.slice(0, 80)}) — retrying in lite mode`);
+    log(`capture failed on ${url} (${msg.slice(0, 80)}) — retrying in lite mode (no WebGL, 1x)`);
     return attemptCapture(url, outDir, {
       ...DEFAULTS,
       ...options,
       deviceScaleFactor: 1,
       maxHeight: 4500,
       watchdogMs: 100_000,
+      webgl: false,
     });
   }
 }
@@ -228,8 +233,7 @@ async function attemptCapture(
     args: [
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
+      ...(opts.webgl ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []),
     ],
   });
 
@@ -297,6 +301,9 @@ async function captureWork(
       return result;
     } catch (err) {
       const detail = err instanceof Error ? err.message.split('\n')[0].slice(0, 90) : String(err);
+      // A dead tab/browser means nothing later can succeed — fail the attempt
+      // now so the lite retry kicks in, instead of limping to the screenshot.
+      if (/crashed|closed|disconnected/i.test(detail)) throw err;
       log(`  ${name}: skipped after ${((Date.now() - s0) / 1000).toFixed(1)}s (${detail})`);
       return fallback;
     }
@@ -343,6 +350,11 @@ async function captureWork(
 
   const revealed = await step('reveal hidden content', 10_000, async () => Number(await page.evaluate(REVEAL_SCRIPT)), 0);
   if (revealed > 0) log(`  forced ${revealed} scroll-reveal element(s) visible`);
+
+  // Stop requestAnimationFrame loops (three.js etc.): the canvas keeps its
+  // last composited frame for the screenshot, and software-rendered WebGL
+  // stops burning tab memory/CPU for the rest of the capture.
+  await step('freeze animation loops', 4_000, () => page.evaluate('(window.requestAnimationFrame = () => 0, true)'), undefined);
   await step('image decode', 8_000, () => page.evaluate(DECODE_SCRIPT), undefined);
   await page.waitForTimeout(500);
 
