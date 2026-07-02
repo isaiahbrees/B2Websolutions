@@ -12,6 +12,9 @@ export type CaptureOptions = {
   /** 2 = retina-sharp footage, larger files. */
   deviceScaleFactor?: number;
   timeoutMs?: number;
+  /** Hard budget for the whole capture — a frozen tab can hang page.evaluate
+   * forever, and one stuck site must never block the job queue. */
+  watchdogMs?: number;
 };
 
 const DEFAULTS: Required<CaptureOptions> = {
@@ -20,7 +23,8 @@ const DEFAULTS: Required<CaptureOptions> = {
   // 1.5x = 2160px-wide capture: sharp on a 1080 reel without the tab-memory
   // cost of full retina on image-heavy pages.
   deviceScaleFactor: 1.5,
-  timeoutMs: 45_000,
+  timeoutMs: 40_000,
+  watchdogMs: 110_000,
 };
 
 /** Read width/height straight out of a JPEG's SOF marker. */
@@ -142,13 +146,16 @@ export async function captureSite(
     return await attemptCapture(url, outDir, { ...DEFAULTS, ...options });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!/crashed|Target closed|Page closed|browser has disconnected/i.test(msg)) throw err;
-    log(`capture crashed on ${url} — retrying in lite mode (1x density, shorter page)`);
+    if (!/crashed|Target closed|Page closed|browser has disconnected|watchdog/i.test(msg)) {
+      throw err;
+    }
+    log(`capture failed on ${url} (${msg.slice(0, 80)}) — retrying in lite mode`);
     return attemptCapture(url, outDir, {
       ...DEFAULTS,
       ...options,
       deviceScaleFactor: 1,
       maxHeight: 4500,
+      watchdogMs: 90_000,
     });
   }
 }
@@ -169,6 +176,39 @@ async function attemptCapture(
   });
 
   try {
+    const work = captureWork(url, outDir, opts, browser);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const watchdog = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `capture watchdog: ${url} took longer than ${Math.round(opts.watchdogMs / 1000)}s (frozen tab?)`,
+            ),
+          ),
+        opts.watchdogMs,
+      );
+    });
+    try {
+      return await Promise.race([work, watchdog]);
+    } finally {
+      clearTimeout(timer);
+      // If the watchdog fired, the abandoned work promise will reject once we
+      // close the browser — don't let that become an unhandled rejection.
+      work.catch(() => {});
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
+async function captureWork(
+  url: string,
+  outDir: string,
+  opts: Required<CaptureOptions>,
+  browser: Awaited<ReturnType<typeof chromium.launch>>,
+): Promise<CaptureMeta> {
+  {
     const context = await browser.newContext({
       viewport: { width: opts.width, height: 900 },
       deviceScaleFactor: opts.deviceScaleFactor,
@@ -188,10 +228,11 @@ async function attemptCapture(
     );
 
     const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
 
     log(`loading ${url}`);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs });
-    await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => {
+    await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {
       log('network never went idle (ads/analytics?) — continuing');
     });
 
@@ -246,13 +287,20 @@ async function attemptCapture(
 
     const imageFile = path.join(outDir, 'site.jpg');
     if (pageHeight <= opts.maxHeight) {
-      await page.screenshot({ path: imageFile, type: 'jpeg', quality: 90, fullPage: true });
+      await page.screenshot({
+        path: imageFile,
+        type: 'jpeg',
+        quality: 90,
+        fullPage: true,
+        timeout: 60_000,
+      });
     } else {
       await page.screenshot({
         path: imageFile,
         type: 'jpeg',
         quality: 90,
         clip: { x: 0, y: 0, width: opts.width, height: cssHeightGuess },
+        timeout: 60_000,
       });
     }
 
@@ -283,7 +331,5 @@ async function attemptCapture(
       `captured ${url} -> ${dims.width}x${dims.height}px (${opts.width}x${trueCssHeight} css), ${sections.length} section(s) detected`,
     );
     return meta;
-  } finally {
-    await browser.close();
   }
 }
