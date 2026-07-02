@@ -74,6 +74,11 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     browserExecutable: process.env.REMOTION_CHROME || undefined,
   });
 
+  // Containers report the host's core count, and Remotion's default
+  // concurrency (cores/2) would open dozens of browser tabs — the OOM killer
+  // then SIGKILLs the encode. Two tabs render a reel fine in ~2GB of RAM.
+  const concurrency = Number(process.env.REMOTION_CONCURRENCY || 2);
+
   ensureDir(path.dirname(path.resolve(opts.outPath)));
   log(`rendering ${composition.durationInFrames} frames at ${composition.width}x${composition.height}…`);
   await renderMedia({
@@ -82,6 +87,7 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     codec: 'h264',
     outputLocation: opts.outPath,
     inputProps,
+    concurrency,
     scale: opts.scale ?? 1,
     browserExecutable: process.env.REMOTION_CHROME || undefined,
     chromiumOptions: { ignoreCertificateErrors: true },
