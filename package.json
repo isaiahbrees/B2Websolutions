@@ -1,0 +1,33 @@
+{
+  "name": "b2-reelworks",
+  "version": "0.1.0",
+  "description": "URL in, before/after reel out, auto-posted to Facebook. Capture websites with Playwright, render polished vertical videos with Remotion, publish via the Meta Graph API or a Make.com webhook.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "make": "tsx src/cli.ts run",
+    "capture": "tsx src/cli.ts capture",
+    "render": "tsx src/cli.ts render",
+    "post": "tsx src/cli.ts post",
+    "studio": "remotion studio",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.0",
+    "@remotion/cli": "^4.0.0",
+    "@remotion/renderer": "^4.0.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "playwright": "^1.49.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
