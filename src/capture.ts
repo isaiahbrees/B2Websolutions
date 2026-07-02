@@ -66,7 +66,9 @@ const REVEAL_SCRIPT = `(() => {
     '*, *::before, *::after {' +
     ' animation-play-state: paused !important;' +
     ' transition: none !important;' +
-    ' scroll-behavior: auto !important; }';
+    ' scroll-behavior: auto !important; }' +
+    ' ::-webkit-scrollbar { display: none !important; }' +
+    ' html { scrollbar-width: none !important; }';
   document.head.appendChild(style);
   let fixed = 0;
   for (const el of document.querySelectorAll('div, section, article, li, img, h1, h2, h3, p')) {
@@ -189,6 +191,91 @@ const SECTIONS_SCRIPT = `(() => {
   out.sort((a, b) => a.y - b.y);
   return JSON.stringify(out.slice(0, 6));
 })()`;
+
+// --- scroll-and-stitch fallback -------------------------------------------
+// Some sites never scroll the document: a fixed wrapper translates content
+// via JS (GSAP ScrollSmoother, Locomotive, slide-deck builds). Screenshots
+// then capture a single screen no matter what. The one thing that always
+// works is doing what a human does: scroll, look, repeat — so we screenshot
+// viewport by viewport and stitch on a canvas inside the page.
+
+const SCROLL_PROBE_SCRIPT = `(async () => {
+  const d = (ms) => new Promise((r) => setTimeout(r, ms));
+  window.scrollTo(0, 1e9);
+  await d(700);
+  const max = Math.round(window.scrollY);
+  window.scrollTo(0, 0);
+  await d(500);
+  return max;
+})()`;
+
+// Fixed/sticky bars would repeat in every stitched segment — hide the small
+// ones (navs, cookie bars) but never full-viewport wrappers (that's where
+// the content lives on transform-scroll sites).
+const STITCH_HIDE_BARS_SCRIPT = `(() => {
+  let n = 0;
+  for (const el of document.querySelectorAll('header, nav, div, aside')) {
+    const cs = getComputedStyle(el);
+    if ((cs.position === 'fixed' || cs.position === 'sticky') && el.getBoundingClientRect().height < innerHeight * 0.4) {
+      el.setAttribute('data-reelworks-hide', '');
+      n++;
+      if (n > 60) break;
+    }
+  }
+  const st = document.createElement('style');
+  st.textContent = '[data-reelworks-hide]{visibility:hidden !important}';
+  document.head.appendChild(st);
+  return n;
+})()`;
+
+async function scrollStitch(
+  page: Page,
+  imageFile: string,
+  opts: Required<CaptureOptions>,
+): Promise<boolean> {
+  // Never assume the viewport height — screenshots are exactly innerHeight
+  // tall, and a wrong segment step leaves bands between segments.
+  const vh = Number(await page.evaluate('window.innerHeight')) || 900;
+  const maxScroll = Number(await page.evaluate(SCROLL_PROBE_SCRIPT));
+  if (!Number.isFinite(maxScroll) || maxScroll < vh * 0.5) return false;
+
+  const totalCss = Math.min(maxScroll + vh, opts.maxHeight);
+  const dsf = opts.deviceScaleFactor;
+  const ys: number[] = [];
+  for (let y = 0; y < totalCss - vh; y += vh) ys.push(y);
+  ys.push(totalCss - vh);
+
+  log(`  stitch: document doesn't scroll but content does (${maxScroll}px range) — capturing ${ys.length} segments`);
+  await page.evaluate(
+    `(window.__rwCanvas = Object.assign(document.createElement('canvas'), { width: ${Math.round(
+      opts.width * dsf,
+    )}, height: ${Math.round(totalCss * dsf)} }), window.__rwCtx = window.__rwCanvas.getContext('2d'), true)`,
+  );
+
+  for (let i = 0; i < ys.length; i++) {
+    await page.evaluate(`(async () => { window.scrollTo(0, ${ys[i]}); await new Promise((r) => setTimeout(r, 650)); return true; })()`);
+    if (i === 1) {
+      // after the first segment, hide repeating fixed bars
+      await page.evaluate(STITCH_HIDE_BARS_SCRIPT).catch(() => {});
+      await page.waitForTimeout(120);
+    }
+    const shot = await page.screenshot({ type: 'jpeg', quality: 88, timeout: 30_000 });
+    await page.evaluate(
+      `(async () => {
+        const img = new Image();
+        img.src = "data:image/jpeg;base64,${shot.toString('base64')}";
+        await img.decode();
+        window.__rwCtx.drawImage(img, 0, ${Math.round(ys[i] * dsf)});
+        return true;
+      })()`,
+    );
+  }
+
+  const dataUrl = String(await page.evaluate(`window.__rwCanvas.toDataURL('image/jpeg', 0.86)`));
+  if (!dataUrl.startsWith('data:image/jpeg;base64,')) return false;
+  fs.writeFileSync(imageFile, Buffer.from(dataUrl.slice('data:image/jpeg;base64,'.length), 'base64'));
+  return true;
+}
 
 async function dismissCookieBanners(page: Page): Promise<void> {
   const attempts = [
@@ -426,9 +513,23 @@ async function captureWork(
   // THE source of truth: what's actually in the file. DOM-reported heights
   // lie on animated/parallax sites, and trusting them made the camera
   // scroll past the end of the image into blank space.
-  const dims = jpegDimensions(imageFile);
+  let dims = jpegDimensions(imageFile);
   if (!dims) throw new Error(`Could not read dimensions of capture ${imageFile}`);
-  const trueCssHeight = Math.round(dims.height / (dims.width / opts.width));
+  let trueCssHeight = Math.round(dims.height / (dims.width / opts.width));
+  let stitched = false;
+
+  // One-viewport capture on a page whose content actually scrolls? That's a
+  // transform-scroll site — fall back to scroll-and-stitch.
+  if (trueCssHeight <= 1125) {
+    stitched = await step('stitch capture', 90_000, () => scrollStitch(page, imageFile, opts), false);
+    if (stitched) {
+      dims = jpegDimensions(imageFile) ?? dims;
+      trueCssHeight = Math.round(dims.height / (dims.width / opts.width));
+      // Section positions were measured in a coordinate system the stitch
+      // invalidated — the camera falls back to its clean full-page glide.
+      sections.length = 0;
+    }
+  }
 
   const meta: CaptureMeta = {
     url,
