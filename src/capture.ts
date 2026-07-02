@@ -22,7 +22,7 @@ export type CaptureOptions = {
 
 const DEFAULTS: Required<CaptureOptions> = {
   width: 1440,
-  maxHeight: 6500,
+  maxHeight: 9000,
   // 1.5x = 2160px-wide capture: sharp on a 1080 reel without the tab-memory
   // cost of full retina on image-heavy pages.
   deviceScaleFactor: 1.5,
@@ -165,6 +165,51 @@ const EXPAND_SCROLLER_SCRIPT = `(() => {
   return 'expanded inner scroller to ' + (document.scrollingElement || document.documentElement).scrollHeight + 'px';
 })()`;
 
+// Lazy-loading libraries hide images behind data-src/data-srcset until their
+// own observers fire — force everything eager so the capture isn't full of
+// blank product cards.
+const FORCE_LAZY_SCRIPT = `(() => {
+  let n = 0;
+  for (const img of document.querySelectorAll('img')) {
+    if (img.loading === 'lazy') { img.loading = 'eager'; n++; }
+    const d = img.dataset || {};
+    if (!img.getAttribute('src') && (d.src || d.lazySrc || d.original)) { img.src = d.src || d.lazySrc || d.original; n++; }
+    if (!img.getAttribute('srcset') && (d.srcset || d.lazySrcset)) { img.srcset = d.srcset || d.lazySrcset; n++; }
+  }
+  for (const el of document.querySelectorAll('[data-bg], [data-background-image]')) {
+    const bg = el.dataset.bg || el.dataset.backgroundImage;
+    if (bg && !el.style.backgroundImage) { el.style.backgroundImage = 'url(' + bg + ')'; n++; }
+  }
+  return n;
+})()`;
+
+// Viewport-relative section detector used during scroll-and-stitch: measures
+// where sections sit ON SCREEN at each scroll stop, which maps 1:1 onto the
+// stitched image even when the site scrolls via transforms.
+const SECTIONS_IN_VIEW_SCRIPT = `(() => {
+  const out = [];
+  const vw = document.documentElement.clientWidth;
+  const vh = innerHeight;
+  const add = (el, kind) => {
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width < vw * 0.25 || r.height < 40) return;
+    if (r.top < -80 || r.top > vh * 0.85) return;
+    if (getComputedStyle(el).display === 'none') return;
+    out.push({ top: Math.round(r.top), h: Math.round(Math.min(r.height, 1200)), kind });
+  };
+  const q = (sel) => { try { return Array.from(document.querySelectorAll(sel)); } catch { return []; } };
+  add(q('h1')[0], 'hero');
+  q('[class*="testimonial" i], [class*="review" i], blockquote').slice(0, 3).forEach((el) => add(el, 'testimonial'));
+  q('[class*="pricing" i], [class*="plans" i]').slice(0, 2).forEach((el) => add(el, 'pricing'));
+  q('[class*="stat" i], [class*="metric" i]').slice(0, 2).forEach((el) => add(el, 'stats'));
+  q('[class*="gallery" i], [class*="portfolio" i], [class*="work" i]').slice(0, 2).forEach((el) => add(el, 'gallery'));
+  q('[class*="bento" i], [class*="card" i], [class*="grid" i], [class*="feature" i], [class*="service" i]').slice(0, 4).forEach((el) => add(el, 'cards'));
+  q('form, [class*="contact" i], [class*="cta" i]').slice(0, 3).forEach((el) => add(el, 'cta'));
+  q('h2').slice(0, 6).forEach((el) => add(el, 'heading'));
+  return JSON.stringify(out.slice(0, 8));
+})()`;
+
 const SECTIONS_SCRIPT = `(() => {
   const out = [];
   const taken = [];
@@ -232,12 +277,13 @@ async function scrollStitch(
   page: Page,
   imageFile: string,
   opts: Required<CaptureOptions>,
-): Promise<boolean> {
+): Promise<{ ok: boolean; sections: PageSection[] }> {
+  const fail = { ok: false, sections: [] as PageSection[] };
   // Never assume the viewport height — screenshots are exactly innerHeight
   // tall, and a wrong segment step leaves bands between segments.
   const vh = Number(await page.evaluate('window.innerHeight')) || 900;
   const maxScroll = Number(await page.evaluate(SCROLL_PROBE_SCRIPT));
-  if (!Number.isFinite(maxScroll) || maxScroll < vh * 0.5) return false;
+  if (!Number.isFinite(maxScroll) || maxScroll < vh * 0.5) return fail;
 
   const totalCss = Math.min(maxScroll + vh, opts.maxHeight);
   const dsf = opts.deviceScaleFactor;
@@ -252,6 +298,35 @@ async function scrollStitch(
     )}, height: ${Math.round(totalCss * dsf)} }), window.__rwCtx = window.__rwCanvas.getContext('2d'), true)`,
   );
 
+  // Detect sections at each stop: on-screen position + scroll offset maps
+  // exactly onto the stitched image, even for transform-scroll sites.
+  const sections: PageSection[] = [];
+  const collect = async (y: number) => {
+    try {
+      const found = JSON.parse(String(await page.evaluate(SECTIONS_IN_VIEW_SCRIPT))) as Array<{
+        top: number;
+        h: number;
+        kind: PageSection['kind'];
+      }>;
+      for (const s of found) {
+        const abs = y + s.top;
+        if (abs < 0) continue;
+        // The same element shows up in adjacent segments at shifted offsets —
+        // dedupe harder within a kind.
+        if (
+          sections.some(
+            (e) => Math.abs(e.y - abs) < 350 || (e.kind === s.kind && Math.abs(e.y - abs) < 700),
+          )
+        ) {
+          continue;
+        }
+        sections.push({ y: abs, h: s.h, kind: s.kind });
+      }
+    } catch {
+      /* section detection is a nice-to-have */
+    }
+  };
+
   for (let i = 0; i < ys.length; i++) {
     await page.evaluate(`(async () => { window.scrollTo(0, ${ys[i]}); await new Promise((r) => setTimeout(r, 650)); return true; })()`);
     if (i === 1) {
@@ -259,6 +334,7 @@ async function scrollStitch(
       await page.evaluate(STITCH_HIDE_BARS_SCRIPT).catch(() => {});
       await page.waitForTimeout(120);
     }
+    await collect(ys[i]);
     const shot = await page.screenshot({ type: 'jpeg', quality: 88, timeout: 30_000 });
     await page.evaluate(
       `(async () => {
@@ -272,9 +348,10 @@ async function scrollStitch(
   }
 
   const dataUrl = String(await page.evaluate(`window.__rwCanvas.toDataURL('image/jpeg', 0.86)`));
-  if (!dataUrl.startsWith('data:image/jpeg;base64,')) return false;
+  if (!dataUrl.startsWith('data:image/jpeg;base64,')) return fail;
   fs.writeFileSync(imageFile, Buffer.from(dataUrl.slice('data:image/jpeg;base64,'.length), 'base64'));
-  return true;
+  sections.sort((a, b) => a.y - b.y);
+  return { ok: true, sections: sections.slice(0, 6) };
 }
 
 async function dismissCookieBanners(page: Page): Promise<void> {
@@ -298,6 +375,34 @@ async function dismissCookieBanners(page: Page): Promise<void> {
       }
     } catch {
       /* not this one — keep trying */
+    }
+  }
+}
+
+// Discount/newsletter popups (Klaviyo etc.) photobomb captures. Escape
+// closes most of them; otherwise click the usual close buttons.
+async function dismissOverlays(page: Page): Promise<void> {
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(250);
+  const closers = [
+    '.klaviyo-close-form',
+    '[aria-label*="close" i]',
+    '[class*="modal" i] [class*="close" i]',
+    '[class*="popup" i] [class*="close" i]',
+    '[id*="popup" i] [class*="close" i]',
+    '[class*="overlay" i] [class*="close" i]',
+  ];
+  for (const sel of closers) {
+    try {
+      const el = page.locator(sel).first();
+      if (await el.isVisible()) {
+        await el.click({ timeout: 800 });
+        log(`dismissed overlay via ${sel}`);
+        await page.waitForTimeout(300);
+        return;
+      }
+    } catch {
+      /* not this one */
     }
   }
 }
@@ -327,7 +432,7 @@ export async function captureSite(
       ...DEFAULTS,
       ...options,
       deviceScaleFactor: 1,
-      maxHeight: 4500,
+      maxHeight: 6000,
       watchdogMs: 100_000,
       webgl: false,
     });
@@ -432,7 +537,10 @@ async function captureWork(
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs });
   await step('settle network', 9_000, () => page.waitForLoadState('networkidle', { timeout: 8_000 }), undefined);
   await step('cookie banners', 10_000, () => dismissCookieBanners(page), undefined);
+  await step('marketing popups', 8_000, () => dismissOverlays(page), undefined);
   await step('web fonts', 6_000, () => page.evaluate(FONTS_SCRIPT), undefined);
+  const eager = await step('force lazy media', 6_000, async () => Number(await page.evaluate(FORCE_LAZY_SCRIPT)), 0);
+  if (eager > 0) log(`  forced ${eager} lazy image(s)/background(s) eager`);
   const scrollerInfo = await step(
     'find real scroller',
     10_000,
@@ -465,6 +573,11 @@ async function captureWork(
       ),
     undefined,
   );
+
+  // Second pass: some lazyload libraries only rewrite attributes on scroll.
+  await step('force lazy media (2nd pass)', 5_000, () => page.evaluate(FORCE_LAZY_SCRIPT), undefined);
+  // Popups often re-open on scroll or exit-intent — one more sweep.
+  await step('marketing popups (2nd pass)', 6_000, () => dismissOverlays(page), undefined);
 
   const revealed = await step('reveal hidden content', 10_000, async () => Number(await page.evaluate(REVEAL_SCRIPT)), 0);
   if (revealed > 0) log(`  forced ${revealed} scroll-reveal element(s) visible`);
@@ -521,13 +634,19 @@ async function captureWork(
   // One-viewport capture on a page whose content actually scrolls? That's a
   // transform-scroll site — fall back to scroll-and-stitch.
   if (trueCssHeight <= 1125) {
-    stitched = await step('stitch capture', 90_000, () => scrollStitch(page, imageFile, opts), false);
-    if (stitched) {
+    const stitch = await step('stitch capture', 120_000, () => scrollStitch(page, imageFile, opts), {
+      ok: false,
+      sections: [],
+    });
+    if (stitch.ok) {
+      stitched = true;
       dims = jpegDimensions(imageFile) ?? dims;
       trueCssHeight = Math.round(dims.height / (dims.width / opts.width));
-      // Section positions were measured in a coordinate system the stitch
-      // invalidated — the camera falls back to its clean full-page glide.
+      // Replace DOM-space sections with the ones measured on-screen during
+      // the stitch — those map exactly onto the stitched image.
       sections.length = 0;
+      sections.push(...stitch.sections);
+      log(`  stitch found ${stitch.sections.length} section(s) on-screen`);
     }
   }
 
