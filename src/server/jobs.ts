@@ -74,12 +74,20 @@ export function loadJobs(): void {
     if (!fs.existsSync(file)) continue;
     try {
       const job = readJson<Job>(file);
+      let dirty = false;
       // Anything that was mid-flight when the server stopped is dead.
       if (!['done', 'error'].includes(job.status)) {
         job.status = 'error';
         job.error = 'Interrupted by server restart — submit again.';
-        persist(job);
+        dirty = true;
       }
+      // Projects created before delivery links existed get a token minted, so
+      // their share URLs work instead of pointing at /share/undefined.
+      if (!job.shareToken) {
+        job.shareToken = crypto.randomBytes(12).toString('base64url');
+        dirty = true;
+      }
+      if (dirty) persist(job);
       jobs.set(job.id, job);
     } catch {
       log(`skipping unreadable job dir ${id}`);
@@ -162,9 +170,14 @@ export function createJob(params: JobParams): Job {
   return job;
 }
 
-/** Re-render with new style — reuses existing captures and recordings. */
+/**
+ * Re-render with new style — reuses existing captures and recordings.
+ * `styleParams.style`, when provided, REPLACES the stored style (the API
+ * route computes the full override set); merging here would resurrect
+ * old template copy the route deliberately dropped.
+ */
 export function rerenderJob(job: Job, styleParams: Partial<JobParams>): void {
-  job.params = { ...job.params, ...styleParams, style: { ...job.params.style, ...styleParams.style } };
+  job.params = { ...job.params, ...styleParams };
   job.status = 'queued';
   job.stage = 'Waiting in queue (re-render)';
   job.progress = 0;
@@ -226,7 +239,13 @@ async function renderPhase(job: Job): Promise<void> {
     recordExport(job.id);
 
     if (job.params.postVia) {
-      await postJob(job, job.params.postVia);
+      try {
+        await postJob(job, job.params.postVia);
+      } catch {
+        // postJob already recorded the failure message on the job. The render
+        // itself succeeded — a posting error must not flip the project to
+        // 'error' and hide a perfectly good video.
+      }
     }
     update(job, { status: 'done', stage: undefined });
     log(`job ${job.id} done`);

@@ -30,6 +30,7 @@ import {
 } from './jobs';
 import { PLANS, canAddBrandKit, canExport, canUse60fps, canUseResolution, type PlanId } from './plans';
 import { deriveScenes } from './scenes';
+import { applyPlanCaps, resolveRerenderStyle } from './style';
 import {
   deleteAsset,
   deleteBrandKit,
@@ -66,7 +67,13 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(UI_DIR, 'login.html'));
 });
 app.get('/share/:token', page('share.html'));
-app.use('/assets', express.static(UI_DIR, { maxAge: '1h' }));
+// Only the shared static files — page shells are served by their routes above
+// (the /app ones behind auth), never straight off disk.
+const STATIC_FILES = new Set(['theme.css', 'shell.js']);
+app.get('/assets/:file', (req, res) => {
+  if (!STATIC_FILES.has(req.params.file)) return res.status(404).end();
+  res.sendFile(path.join(UI_DIR, req.params.file), { maxAge: '1h' });
+});
 
 // --- app pages (auth-gated; APIs enforce separately) ---
 const appPage = (name: string) => (req: express.Request, res: express.Response) => {
@@ -126,6 +133,16 @@ app.get('/api/share/:token/video', (req, res) => {
   const job = getJobByShareToken(req.params.token);
   if (!job?.videoFile) return res.status(404).json({ error: 'Not available' });
   res.sendFile(path.resolve(job.videoFile));
+});
+
+// Asset files are fetched by id (unguessable) WITHOUT a session: the Remotion
+// render browser loads brand-kit logos and music tracks from these URLs and
+// has no cookie — behind requireAuth they would 401 and never render.
+app.get('/api/assets/:id/file', (req, res) => {
+  const asset = getAsset(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'No such asset' });
+  res.setHeader('Content-Type', asset.mime);
+  res.sendFile(path.resolve(asset.file));
 });
 
 // --- authed APIs ---
@@ -265,7 +282,9 @@ app.post('/api/projects', (req, res) => {
       musicSrc: isHttpUrl(b.musicUrl) ? b.musicUrl : undefined,
     },
   };
-  params.style = Object.fromEntries(Object.entries(params.style ?? {}).filter(([, v]) => v !== undefined));
+  params.style = Object.fromEntries(
+    Object.entries(params.style ?? {}).filter(([, v]) => v !== undefined),
+  ) as JobParams['style'];
   const job = createJob(params);
   res.status(201).json(serializeJob(job));
 });
@@ -297,18 +316,25 @@ app.post('/api/projects/:id/rerender', (req, res) => {
     return res.status(409).json({ error: 'Original captures are gone — create a new project instead.' });
   }
   const ws = getWorkspace();
-  const gate = canExport(PLANS[ws.plan], exportsUsedThisMonth());
+  const plan = PLANS[ws.plan];
+  const gate = canExport(plan, exportsUsedThisMonth());
   if (!gate.ok) return res.status(402).json({ error: gate.reason, upgradeTo: gate.upgradeTo });
 
   const b = req.body ?? {};
-  const style: JobParams['style'] = {};
-  for (const key of ['title', 'tagline', 'cta', 'beforeLabel', 'afterLabel', 'brandName', 'accentColor'] as const) {
-    const v = optional(b[key]);
-    if (v) style[key] = v;
-  }
   const tplId = oneOf(b.templateId, TEMPLATES.map((t) => t.id) as [string, ...string[]]);
-  const intensity = oneOf(b.intensity, ['subtle', 'balanced', 'cinematic'] as const);
-  if (intensity) style.intensity = intensity;
+  const nextTpl = getTemplate(tplId ?? job.params.templateId ?? 'clean-agency');
+  if (nextTpl.minPlan === 'pro' && ['free', 'starter'].includes(plan.id)) {
+    return res
+      .status(402)
+      .json({ error: `The ${nextTpl.name} template is available on Pro and above.`, upgradeTo: 'pro' });
+  }
+  const style = resolveRerenderStyle({
+    currentStyle: job.params.style,
+    currentTemplateId: job.params.templateId ?? 'clean-agency',
+    nextTemplateId: nextTpl.id,
+    body: b,
+  });
+  applyPlanCaps(style, plan);
   rerenderJob(job, { ...(tplId ? { templateId: tplId } : {}), style });
   res.json(serializeJob(job));
 });
@@ -317,9 +343,18 @@ app.post('/api/projects/:id/duplicate', (req, res) => {
   const src = getJob(req.params.id);
   if (!src) return res.status(404).json({ error: 'No such project' });
   const ws = getWorkspace();
-  const gate = canExport(PLANS[ws.plan], exportsUsedThisMonth());
+  const plan = PLANS[ws.plan];
+  const gate = canExport(plan, exportsUsedThisMonth());
   if (!gate.ok) return res.status(402).json({ error: gate.reason, upgradeTo: gate.upgradeTo });
-  const job = createJob({ ...src.params, projectName: `${src.params.projectName || src.params.clientName} (copy)` });
+  const srcTpl = getTemplate(src.params.templateId ?? 'clean-agency');
+  if (srcTpl.minPlan === 'pro' && ['free', 'starter'].includes(plan.id)) {
+    return res
+      .status(402)
+      .json({ error: `The ${srcTpl.name} template is available on Pro and above.`, upgradeTo: 'pro' });
+  }
+  const style: NonNullable<JobParams['style']> = { ...src.params.style };
+  applyPlanCaps(style, plan);
+  const job = createJob({ ...src.params, projectName: `${src.params.projectName || src.params.clientName} (copy)`, style });
   res.status(201).json(serializeJob(job));
 });
 
@@ -407,12 +442,6 @@ app.post('/api/assets', (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
-app.get('/api/assets/:id/file', (req, res) => {
-  const asset = getAsset(req.params.id);
-  if (!asset) return res.status(404).json({ error: 'No such asset' });
-  res.setHeader('Content-Type', asset.mime);
-  res.sendFile(path.resolve(asset.file));
 });
 app.delete('/api/assets/:id', (req, res) => {
   res.json({ ok: deleteAsset(req.params.id) });

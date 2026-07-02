@@ -62,25 +62,29 @@ export const IntroCard: React.FC<{
       >
         {clientName} — before &amp; after
       </div>
-      <div
-        style={{
-          position: 'absolute',
-          bottom: Math.round(H * 0.068),
-          display: 'flex',
-          alignItems: 'center',
-          gap: 18,
-          opacity: brandIn,
-        }}
-      >
-        {logoUrl ? (
-          <Img src={logoUrl} style={{ height: 52, maxWidth: 220, objectFit: 'contain' }} onError={() => {}} />
-        ) : (
-          <div style={{ width: 14, height: 14, borderRadius: 7, background: accentColor }} />
-        )}
-        <div style={{ fontSize: 32, fontWeight: 700, color: theme.text, letterSpacing: -0.5 }}>
-          {brandName}
+      {brandName || logoUrl ? (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: Math.round(H * 0.068),
+            display: 'flex',
+            alignItems: 'center',
+            gap: 18,
+            opacity: brandIn,
+          }}
+        >
+          {logoUrl ? (
+            <Img src={logoUrl} style={{ height: 52, maxWidth: 220, objectFit: 'contain' }} onError={() => {}} />
+          ) : (
+            <div style={{ width: 14, height: 14, borderRadius: 7, background: accentColor }} />
+          )}
+          {brandName ? (
+            <div style={{ fontSize: 32, fontWeight: 700, color: theme.text, letterSpacing: -0.5 }}>
+              {brandName}
+            </div>
+          ) : null}
         </div>
-      </div>
+      ) : null}
     </AbsoluteFill>
   );
 };

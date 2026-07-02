@@ -104,12 +104,17 @@ export type Gate =
   | { ok: true }
   | { ok: false; reason: string; upgradeTo: PlanId };
 
+/** The plan one step up — what an upgrade prompt should point at. */
+function nextPlanUp(id: PlanId): PlanId {
+  return id === 'free' ? 'starter' : id === 'starter' ? 'pro' : id === 'pro' ? 'agency' : 'enterprise';
+}
+
 export function canExport(plan: Plan, usedThisMonth: number): Gate {
   if (usedThisMonth >= plan.exportsPerMonth) {
     return {
       ok: false,
       reason: `You've used all ${plan.exportsPerMonth} exports on the ${plan.name} plan this month.`,
-      upgradeTo: plan.id === 'free' ? 'starter' : plan.id === 'starter' ? 'pro' : 'agency',
+      upgradeTo: nextPlanUp(plan.id),
     };
   }
   return { ok: true };
@@ -140,6 +145,6 @@ export function canAddBrandKit(plan: Plan, existing: number): Gate {
           plan.brandKits === 0
             ? 'Brand kits are available on Starter and above.'
             : `The ${plan.name} plan includes ${plan.brandKits} brand kit${plan.brandKits === 1 ? '' : 's'}.`,
-        upgradeTo: plan.brandKits === 0 ? 'starter' : plan.id === 'starter' ? 'pro' : 'agency',
+        upgradeTo: plan.brandKits === 0 ? 'starter' : nextPlanUp(plan.id),
       };
 }

@@ -82,7 +82,9 @@ export const defaultReelProps: ReelProps = {
   cta: 'Message us for a redesign',
   beforeLabel: 'BEFORE',
   afterLabel: 'AFTER',
-  brandName: 'B2 Web Solutions',
+  // Intentionally empty: with no brand kit or override set, no third-party
+  // name may leak into a customer's render. Cards skip the brand row.
+  brandName: '',
   logoUrl: null,
   accentColor: '#0a84ff',
   template: 'clean',

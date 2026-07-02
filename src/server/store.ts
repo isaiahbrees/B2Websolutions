@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import type { PlanId } from './plans';
+import { PLANS, type PlanId } from './plans';
 import { ensureDir, readJson, writeJson } from '../util';
 
 /**
@@ -102,18 +102,23 @@ export const monthKey = (d = new Date()) => d.toISOString().slice(0, 7);
 export function getWorkspace(): Workspace {
   const db = load();
   if (db.workspaces.length === 0) {
+    // A typo'd PLAN env var must not 500 every request downstream.
+    const envPlan = process.env.PLAN as PlanId | undefined;
     db.workspaces.push({
       id: newId(),
       name: process.env.WORKSPACE_NAME || 'My Workspace',
       ownerEmail: process.env.ADMIN_EMAIL || 'owner@example.com',
-      plan: (process.env.PLAN as PlanId) || 'pro',
+      plan: envPlan && envPlan in PLANS ? envPlan : 'pro',
       createdAt: new Date().toISOString(),
       stripeCustomerId: null,
       defaultBrandKitId: null,
     });
     save();
   }
-  return db.workspaces[0];
+  const ws = db.workspaces[0];
+  // Heal a workspace persisted with an invalid plan (e.g. old env typo).
+  if (!(ws.plan in PLANS)) ws.plan = 'pro';
+  return ws;
 }
 
 export function updateWorkspace(patch: Partial<Pick<Workspace, 'name' | 'plan' | 'defaultBrandKitId'>>): Workspace {
@@ -133,12 +138,31 @@ export function getBrandKit(id: string): BrandKit | undefined {
   return listBrandKits().find((b) => b.id === id);
 }
 
+// Whitelist for saveBrandKit — request bodies must not be able to reassign
+// id/workspaceId/createdAt (classic mass-assignment).
+const KIT_FIELDS = [
+  'name',
+  'brandName',
+  'website',
+  'logoAssetId',
+  'primaryColor',
+  'accentColor',
+  'font',
+  'defaultCta',
+  'socialHandle',
+  'endCardMessage',
+  'musicPreference',
+] as const;
+
 export function saveBrandKit(input: Partial<BrandKit> & { name: string }): BrandKit {
   const db = load();
   const ws = getWorkspace();
   const existing = input.id ? db.brandKits.find((b) => b.id === input.id) : undefined;
   if (existing) {
-    Object.assign(existing, input, { updatedAt: new Date().toISOString() });
+    for (const key of KIT_FIELDS) {
+      if (input[key] !== undefined) (existing as Record<string, unknown>)[key] = input[key];
+    }
+    existing.updatedAt = new Date().toISOString();
     save();
     return existing;
   }

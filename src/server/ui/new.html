@@ -85,6 +85,9 @@
               </select>
             </div>
           </div>
+          <div class="field" style="margin-top:12px"><label>Music <span class="hint">tracks you upload in Assets appear here</span></label>
+            <select class="input" id="f-music"><option value="">No music</option></select>
+          </div>
         </div>
       </section>
 
@@ -147,6 +150,17 @@
       const def = Shell.workspace?.defaultBrandKitId;
       if (def) sel.value = def;
     });
+    api('/api/assets?kind=music').then((assets) => {
+      const sel = document.getElementById('f-music');
+      for (const a of assets) sel.insertAdjacentHTML('beforeend', `<option value="${a.id}">${esc(a.name)}</option>`);
+    });
+    // Rendering defaults saved on the Settings page pre-select the wizard.
+    try {
+      const d = JSON.parse(localStorage.getItem('rf-defaults') || '{}');
+      if (d.resolution) document.getElementById('f-resolution').value = d.resolution;
+      if (d.fps) document.getElementById('f-fps').value = d.fps;
+      if (d.scrollSpeed) document.getElementById('f-scrollSpeed').value = d.scrollSpeed;
+    } catch {}
     document.addEventListener('workspace', (e) => {
       const plan = e.detail.plan;
       const res = document.getElementById('f-resolution');
@@ -204,6 +218,7 @@
             industry: v('f-industry'), brandKitId: v('f-brandKitId'),
             storyType: state.storyType, templateId: state.templateId, format: state.format,
             resolution: v('f-resolution'), fps: Number(v('f-fps')), scrollSpeed: v('f-scrollSpeed'),
+            musicUrl: v('f-music') ? `${location.origin}/api/assets/${v('f-music')}/file` : undefined,
           }),
         });
         toast('Project created — capturing both sites now');

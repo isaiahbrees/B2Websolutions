@@ -45,12 +45,6 @@
           </div>
           <div class="field"><label>Default CTA</label><input class="input" id="k-defaultCta" placeholder="Message us for a redesign" /></div>
           <div class="field"><label>End-card message</label><input class="input" id="k-endCardMessage" placeholder="Your website should work as hard as you do." /></div>
-          <div class="field"><label>Music preference</label>
-            <select class="input" id="k-musicPreference">
-              <option value="none">No music</option><option value="cinematic">Cinematic</option><option value="uplifting">Uplifting</option>
-              <option value="modern-tech">Modern tech</option><option value="minimal">Minimal</option><option value="luxury">Luxury</option><option value="energetic">Energetic</option>
-            </select>
-          </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
             <button class="btn" onclick="closeEditor()">Cancel</button>
             <button class="btn btn-primary" id="btn-save">Save brand kit</button>
@@ -105,7 +99,7 @@
       set('id', kit?.id); set('name', kit?.name); set('brandName', kit?.brandName); set('website', kit?.website);
       set('socialHandle', kit?.socialHandle); set('primaryColor', kit?.primaryColor ?? '#1d1d1f');
       set('accentColor', kit?.accentColor ?? '#0a84ff'); set('defaultCta', kit?.defaultCta);
-      set('endCardMessage', kit?.endCardMessage); set('musicPreference', kit?.musicPreference ?? 'none');
+      set('endCardMessage', kit?.endCardMessage);
       const prev = document.getElementById('k-logo-preview');
       prev.hidden = !logoAssetId;
       if (logoAssetId) prev.src = `/api/assets/${logoAssetId}/file`;
@@ -131,7 +125,7 @@
         await api('/api/brandkits', { method: 'POST', body: JSON.stringify({
           id: val('id') || undefined, name: val('name'), brandName: val('brandName'), website: val('website'),
           socialHandle: val('socialHandle'), primaryColor: val('primaryColor'), accentColor: val('accentColor'),
-          defaultCta: val('defaultCta'), endCardMessage: val('endCardMessage'), musicPreference: val('musicPreference'),
+          defaultCta: val('defaultCta'), endCardMessage: val('endCardMessage'),
           logoAssetId,
         }) });
         toast('Brand kit saved');

@@ -46,23 +46,27 @@ export const EndCard: React.FC<{
       >
         {tagline}
       </div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 18,
-          marginTop: 26,
-          opacity: brandIn,
-          transform: `translateY(${(1 - brandIn) * 22}px)`,
-        }}
-      >
-        {logoUrl ? (
-          <Img src={logoUrl} style={{ height: 58, maxWidth: 240, objectFit: 'contain' }} onError={() => {}} />
-        ) : null}
-        <div style={{ fontSize: 52, fontWeight: 800, letterSpacing: -1, color: theme.text }}>
-          {brandName}
+      {brandName || logoUrl ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 18,
+            marginTop: 26,
+            opacity: brandIn,
+            transform: `translateY(${(1 - brandIn) * 22}px)`,
+          }}
+        >
+          {logoUrl ? (
+            <Img src={logoUrl} style={{ height: 58, maxWidth: 240, objectFit: 'contain' }} onError={() => {}} />
+          ) : null}
+          {brandName ? (
+            <div style={{ fontSize: 52, fontWeight: 800, letterSpacing: -1, color: theme.text }}>
+              {brandName}
+            </div>
+          ) : null}
         </div>
-      </div>
+      ) : null}
       <div style={{ fontSize: 32, fontWeight: 500, color: theme.textDim, opacity: servicesIn }}>
         {services}
       </div>

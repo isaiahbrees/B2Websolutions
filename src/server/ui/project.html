@@ -138,8 +138,12 @@
         player.innerHTML = `<div style="text-align:center;max-width:420px"><div style="font-size:22px;margin-bottom:8px">😵</div><div class="small" style="color:var(--red)">${esc(project.error || 'Something failed')}</div><button class="btn" style="margin-top:14px" onclick="location.href='/app/new'">Try again</button></div>`;
       } else {
         const stage = document.getElementById('player-stage');
-        if (stage) stage.textContent = project.stage || 'Working…';
-        if (project.status === 'rendering' && project.progress > 0) stage.textContent = `${project.stage} · ${Math.round(project.progress * 100)}%`;
+        if (stage) {
+          stage.textContent = project.stage || 'Working…';
+          if (project.status === 'rendering' && project.progress > 0) {
+            stage.textContent = `${project.stage} · ${Math.round(project.progress * 100)}%`;
+          }
+        }
       }
 
       // scenes
@@ -185,10 +189,19 @@
         document.getElementById('s-intensity').value = project.style.intensity ?? 'balanced';
         document.getElementById('s-accentColor').value = project.style.accentColor ?? '#0a84ff';
       }
-      if (project.postedVia) document.getElementById('post-state').textContent = `Posted via ${project.postedVia}`;
+      const postState = document.getElementById('post-state');
+      if (project.postedVia) postState.textContent = `Posted via ${project.postedVia}`;
+      else if (project.status === 'done' && project.error) postState.textContent = `Posting failed: ${project.error}`;
       if (busy) setTimeout(refresh, 2500);
     }
-    document.querySelectorAll('.side-card input, .side-card select').forEach((el) => el.addEventListener('input', () => (styleDirty = true)));
+    // Track which style fields the user actually touched — the re-render API
+    // only receives those, so an untouched field follows a template switch
+    // instead of freezing the old template's copy forever.
+    const edited = new Set();
+    document.querySelectorAll('.side-card input, .side-card select').forEach((el) => el.addEventListener('input', () => {
+      styleDirty = true;
+      if (el.id.startsWith('s-')) edited.add(el.id.slice(2));
+    }));
 
     api('/api/catalog').then(({ templates }) => {
       const sel = document.getElementById('s-templateId');
@@ -198,16 +211,14 @@
 
     document.getElementById('btn-rerender').onclick = async () => {
       const val = (f) => document.getElementById(`s-${f}`).value.trim();
+      const body = { templateId: val('templateId') };
+      for (const f of ['title', 'beforeLabel', 'afterLabel', 'tagline', 'cta', 'intensity', 'accentColor']) {
+        if (edited.has(f)) body[f] = val(f);
+      }
       try {
-        await api(`/api/projects/${id}/rerender`, {
-          method: 'POST',
-          body: JSON.stringify({
-            templateId: val('templateId'), title: val('title'), beforeLabel: val('beforeLabel'),
-            afterLabel: val('afterLabel'), tagline: val('tagline'), cta: val('cta'),
-            intensity: val('intensity'), accentColor: val('accentColor'),
-          }),
-        });
+        await api(`/api/projects/${id}/rerender`, { method: 'POST', body: JSON.stringify(body) });
         styleDirty = false;
+        edited.clear();
         toast('Re-render queued');
         document.getElementById('player').innerHTML = `<div style="text-align:center" id="player-placeholder"><div class="progress indeterminate" style="width:260px;margin:0 auto 14px"><div></div></div><div class="small muted" id="player-stage">Queued…</div></div>`;
         refresh();

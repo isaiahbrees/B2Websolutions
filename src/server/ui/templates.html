@@ -29,7 +29,7 @@
           <div style="padding:14px;display:grid;gap:8px;flex:1">
             <div style="display:flex;gap:6px;flex-wrap:wrap">${t.tags.map((x) => `<span class="badge badge-gray">${esc(x)}</span>`).join('')}</div>
             <p class="small muted">${esc(t.description)}</p>
-            <div class="small faint">Pacing ${t.pacing}× · ${esc(t.intensity)} camera · ${esc(t.musicTag)} music</div>
+            <div class="small faint">Pacing ${t.pacing}× · ${esc(t.intensity)} camera</div>
             <a class="btn ${t.locked ? '' : 'btn-primary'}" style="margin-top:auto" href="${t.locked ? '/app/billing' : `/app/new?template=${t.id}`}">
               ${t.locked ? 'Unlock with Pro' : 'Use this template'}
             </a>

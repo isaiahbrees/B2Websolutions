@@ -76,7 +76,7 @@
       const active = projects.filter((p) => !['done', 'error'].includes(p.status));
       document.getElementById('stat-active').textContent = active.length || '–';
       document.getElementById('stat-active-label').textContent = active.length
-        ? esc(active[0].stage || 'Working…')
+        ? active[0].stage || 'Working…'
         : 'Nothing in the queue';
 
       const host = document.getElementById('recent');
