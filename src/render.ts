@@ -79,11 +79,11 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
   // past its nominal end, and the segment must never outrun the footage.
   if (beforeVideo) {
     fs.copyFileSync(path.join(opts.beforeDir, 'scroll.webm'), path.join(jobDir, 'before.webm'));
-    beforeSeconds = Math.min(Math.max(beforeVideo.durationSec - 0.6, 4), 55);
+    beforeSeconds = Math.min(Math.max(beforeVideo.durationSec - 1.0, 4), 55);
   }
   if (afterVideo) {
     fs.copyFileSync(path.join(opts.afterDir, 'scroll.webm'), path.join(jobDir, 'after.webm'));
-    afterSeconds = Math.min(Math.max(afterVideo.durationSec - 0.2, 4), 58);
+    afterSeconds = Math.min(Math.max(afterVideo.durationSec - 0.6, 4), 58);
   }
   log(
     `footage: before=${beforeVideo ? 'live video' : 'still capture'}, after=${afterVideo ? 'live video' : 'still capture'}`,
@@ -167,6 +167,9 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     inputProps,
     concurrency,
     scale: opts.scale ?? 1,
+    // Video-frame extraction on long recordings can legitimately take a
+    // while on shared CPUs; don't let the default 30s kill the render.
+    timeoutInMilliseconds: 120_000,
     browserExecutable: process.env.REMOTION_CHROME || undefined,
     chromiumOptions: { ignoreCertificateErrors: true },
     onProgress: ({ progress }) => {

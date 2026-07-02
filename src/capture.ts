@@ -1,5 +1,8 @@
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { chromium, type Page } from 'playwright';
 import type { CaptureMeta, PageSection, ScrollVideoInfo } from './types';
 import { ensureDir, log, writeJson } from './util';
@@ -694,6 +697,65 @@ const SPEED_PX_PER_SEC: Record<'slow' | 'medium' | 'fast', number> = {
   fast: 620,
 };
 
+const execFileP = promisify(execFile);
+
+/** Playwright bundles the ffmpeg it records with — reuse it. */
+function findPlaywrightFfmpeg(): string | null {
+  const roots = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    path.join(os.homedir(), '.cache', 'ms-playwright'),
+    path.join(os.homedir(), 'AppData', 'Local', 'ms-playwright'),
+    path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright'),
+  ].filter((p): p is string => Boolean(p));
+  for (const root of roots) {
+    try {
+      for (const entry of fs.readdirSync(root)) {
+        if (!entry.startsWith('ffmpeg')) continue;
+        for (const bin of ['ffmpeg-linux', 'ffmpeg-mac', 'ffmpeg-win64.exe']) {
+          const candidate = path.join(root, entry, bin);
+          if (fs.existsSync(candidate)) return candidate;
+        }
+      }
+    } catch {
+      /* not this root */
+    }
+  }
+  return null;
+}
+
+/**
+ * Playwright's webm has sparse keyframes, so seeking N seconds in (which the
+ * renderer does constantly) can force a linear decode from zero and blow
+ * Remotion's frame timeout. Re-encode with a keyframe every second — flags
+ * verified against Playwright's own ffmpeg build. Keeps the original on any
+ * failure.
+ */
+async function makeSeekable(file: string): Promise<void> {
+  const ffmpeg = findPlaywrightFfmpeg();
+  if (!ffmpeg) {
+    log('  ffmpeg not found — recording keeps sparse keyframes');
+    return;
+  }
+  const tmp = `${file}.seekable.webm`;
+  try {
+    await execFileP(
+      ffmpeg,
+      ['-y', '-i', file, '-c:v', 'vp8', '-b:v', '4M', '-g', '25', '-deadline', 'realtime', '-cpu-used', '5', '-an', tmp],
+      { timeout: 120_000 },
+    );
+    const size = fs.statSync(tmp).size;
+    if (size > 10_000) {
+      fs.renameSync(tmp, file);
+      log('  re-encoded recording for fast seeking');
+      return;
+    }
+    throw new Error(`suspiciously small output (${size}B)`);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    log(`  seekable re-encode skipped (${err instanceof Error ? err.message.split('\n')[0].slice(0, 70) : err})`);
+  }
+}
+
 /**
  * Record a webm of the page smoothly scrolling top to bottom at constant
  * velocity. Returns timing info the renderer needs to trim the setup phase
@@ -876,6 +938,7 @@ async function recordWork(
     const file = path.join(outDir, 'scroll.webm');
     await video.saveAs(file);
     await video.delete().catch(() => {});
+    await makeSeekable(file);
 
     const info: ScrollVideoInfo = {
       file,
