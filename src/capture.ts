@@ -58,31 +58,33 @@ export async function captureSite(
 
     // Scroll through the page so lazy-loaded images and animations fire,
     // then return to the top for the screenshot.
-    await page.evaluate(async (maxHeight) => {
-      const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-      const step = 700;
-      const limit = Math.min(document.body.scrollHeight, maxHeight);
-      for (let y = 0; y < limit; y += step) {
-        window.scrollTo(0, y);
-        await delay(120);
-      }
-      window.scrollTo(0, 0);
-      await delay(400);
-    }, opts.maxHeight);
+    // NOTE: these in-page scripts are strings on purpose. Function arguments
+    // get transpiled by tsx/esbuild, which injects a __name() helper that
+    // doesn't exist inside the page -> "ReferenceError: __name is not defined".
+    await page.evaluate(
+      `(async () => {
+        const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+        const limit = Math.min(document.body.scrollHeight, ${opts.maxHeight});
+        for (let y = 0; y < limit; y += 700) {
+          window.scrollTo(0, y);
+          await delay(120);
+        }
+        window.scrollTo(0, 0);
+        await delay(400);
+      })()`,
+    );
 
     // Best effort: wait for images near the top to actually decode.
     await page
-      .evaluate(() =>
-        Promise.allSettled(
-          Array.from(document.images)
-            .slice(0, 30)
-            .map((img) => img.decode()),
-        ),
+      .evaluate(
+        `Promise.allSettled(
+          Array.from(document.images).slice(0, 30).map((img) => img.decode())
+        )`,
       )
       .catch(() => {});
     await page.waitForTimeout(500);
 
-    const pageHeight: number = await page.evaluate(() => document.body.scrollHeight);
+    const pageHeight = Number(await page.evaluate('document.body.scrollHeight'));
     const cssHeight = Math.min(Math.max(pageHeight, 900), opts.maxHeight);
     const title = await page.title();
 
