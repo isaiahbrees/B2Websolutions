@@ -24,16 +24,32 @@ program
     });
   });
 
+const styleFromFlags = (o: Record<string, string | undefined>) => ({
+  clientName: o.client as string,
+  ...(o.headline ? { title: o.headline } : {}),
+  ...(o.brand ? { brandName: o.brand } : {}),
+  ...(o.cta ? { cta: o.cta } : {}),
+  ...(o.accent ? { accentColor: o.accent } : {}),
+  ...(o.music ? { musicSrc: o.music } : {}),
+  ...(o.template ? { template: o.template as 'clean' | 'dark' | 'split' } : {}),
+  ...(o.intensity ? { intensity: o.intensity as 'subtle' | 'balanced' | 'cinematic' } : {}),
+  ...(o.resolution ? { resolution: o.resolution as '1080' | '2160' } : {}),
+});
+
 program
   .command('render')
   .description('Render a reel from two existing captures')
   .requiredOption('--before <dir>', 'capture dir of the old site')
   .requiredOption('--after <dir>', 'capture dir of the new site')
   .requiredOption('--client <name>', 'client name shown in the video')
-  .option('--headline <text>', 'hook line')
+  .option('--headline <text>', 'intro title')
   .option('--brand <name>', 'your agency name')
   .option('--cta <text>', 'end-card call to action')
-  .option('--accent <color>', 'accent color, e.g. #22d3ee')
+  .option('--accent <color>', 'accent color, e.g. #0a84ff')
+  .option('--template <t>', 'clean | dark | split')
+  .option('--intensity <i>', 'subtle | balanced | cinematic')
+  .option('--resolution <r>', '1080 | 2160')
+  .option('--speed <s>', 'scroll speed: slow | medium | fast')
   .option('--music <path>', 'audio file (public/-relative or URL)')
   .option('--out <file>', 'output mp4', 'out/reel.mp4')
   .option('--scale <n>', 'render scale for fast previews, e.g. 0.5')
@@ -42,12 +58,8 @@ program
       beforeDir: o.before,
       afterDir: o.after,
       outPath: o.out,
-      clientName: o.client,
-      headline: o.headline,
-      brandName: o.brand,
-      cta: o.cta,
-      accentColor: o.accent,
-      musicSrc: o.music ?? null,
+      props: styleFromFlags(o),
+      scrollSpeed: o.speed as 'slow' | 'medium' | 'fast' | undefined,
       scale: o.scale ? Number(o.scale) : undefined,
     });
   });
@@ -69,10 +81,14 @@ program
   .requiredOption('--before <url>', 'URL of the old site (or archive.org snapshot)')
   .requiredOption('--after <url>', 'URL of the new site')
   .requiredOption('--client <name>', 'client name shown in the video')
-  .option('--headline <text>', 'hook line')
+  .option('--headline <text>', 'intro title')
   .option('--brand <name>', 'your agency name')
   .option('--cta <text>', 'end-card call to action')
   .option('--accent <color>', 'accent color')
+  .option('--template <t>', 'clean | dark | split')
+  .option('--intensity <i>', 'subtle | balanced | cinematic')
+  .option('--resolution <r>', '1080 | 2160')
+  .option('--speed <s>', 'scroll speed: slow | medium | fast')
   .option('--music <path>', 'audio file (public/-relative or URL)')
   .option('--caption <text>', 'Facebook caption (defaults to headline + CTA)')
   .option('--post <via>', 'post after rendering: facebook | reel | make')
@@ -92,12 +108,8 @@ program
       beforeDir,
       afterDir,
       outPath,
-      clientName: o.client,
-      headline: o.headline,
-      brandName: o.brand,
-      cta: o.cta,
-      accentColor: o.accent,
-      musicSrc: o.music ?? null,
+      props: styleFromFlags(o),
+      scrollSpeed: o.speed as 'slow' | 'medium' | 'fast' | undefined,
       scale: o.scale ? Number(o.scale) : undefined,
     });
 

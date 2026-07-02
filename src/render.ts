@@ -2,31 +2,51 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
-import type { CaptureMeta, ReelInputProps } from './types';
+import { defaultReelProps, getSegments, type ReelProps } from './remotion/schema';
+import type { CaptureMeta } from './types';
 import { ensureDir, log, readJson } from './util';
+
+export type ScrollSpeed = 'slow' | 'medium' | 'fast';
 
 export type RenderOptions = {
   beforeDir: string;
   afterDir: string;
   outPath: string;
-  clientName: string;
-  headline?: string;
-  brandName?: string;
-  cta?: string;
-  accentColor?: string;
-  musicSrc?: string | null;
-  beforeSeconds?: number;
-  afterSeconds?: number;
+  /** Template/branding overrides merged over sensible defaults. */
+  props?: Partial<ReelProps>;
+  scrollSpeed?: ScrollSpeed;
+  /** Optional total-duration target in seconds; segments scale to fit. */
+  durationTarget?: number | null;
   /** Render at reduced resolution for fast previews, e.g. 0.5 */
   scale?: number;
-  /** Called with 0..1 as frames render. Defaults to logging to stdout. */
   onProgress?: (progress: number) => void;
 };
 
+// Seconds of screen-time per viewport-height of page to scroll through.
+const SPEED: Record<ScrollSpeed, number> = { slow: 3.4, medium: 2.3, fast: 1.5 };
+
+function autoSeconds(meta: CaptureMeta, speed: ScrollSpeed, flavor: 'before' | 'after'): number {
+  const viewportCss = 900;
+  const screens = Math.max(0, meta.cssHeight / viewportCss - 1);
+  const sectionHold = flavor === 'after' ? meta.sections.length * 0.7 : meta.sections.length * 0.35;
+  const base = flavor === 'after' ? 5 : 4;
+  const s = base + screens * SPEED[speed] + sectionHold;
+  return Math.min(Math.max(s, flavor === 'after' ? 7 : 5), flavor === 'after' ? 22 : 14);
+}
+
+function toSiteMeta(meta: CaptureMeta) {
+  return {
+    width: meta.imageWidth,
+    height: meta.imageHeight,
+    cssWidth: meta.cssWidth,
+    url: meta.url,
+    sections: meta.sections ?? [],
+  };
+}
+
 /**
- * Bundle the Remotion project and render the before/after reel.
- * Captured screenshots are copied into public/job/ so the composition can
- * load them via staticFile().
+ * Bundle the Remotion project and render the reel. Captures are copied into
+ * public/job/ so the composition can load them via staticFile().
  */
 export async function renderReel(opts: RenderOptions): Promise<string> {
   const root = process.cwd();
@@ -38,28 +58,30 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
   fs.copyFileSync(path.join(opts.beforeDir, 'site.jpg'), path.join(jobDir, 'before.jpg'));
   fs.copyFileSync(path.join(opts.afterDir, 'site.jpg'), path.join(jobDir, 'after.jpg'));
 
-  const inputProps: ReelInputProps = {
-    clientName: opts.clientName,
-    headline: opts.headline ?? 'This website was costing them customers.',
+  const speed = opts.scrollSpeed ?? 'medium';
+  let beforeSeconds = autoSeconds(beforeMeta, speed, 'before');
+  let afterSeconds = autoSeconds(afterMeta, speed, 'after');
+
+  const inputProps: ReelProps = {
+    ...defaultReelProps,
+    ...opts.props,
     beforeImage: 'job/before.jpg',
     afterImage: 'job/after.jpg',
-    beforeMeta: {
-      width: beforeMeta.cssWidth,
-      height: beforeMeta.cssHeight,
-      url: beforeMeta.url,
-    },
-    afterMeta: {
-      width: afterMeta.cssWidth,
-      height: afterMeta.cssHeight,
-      url: afterMeta.url,
-    },
-    beforeSeconds: opts.beforeSeconds ?? 8,
-    afterSeconds: opts.afterSeconds ?? 11,
-    brandName: opts.brandName ?? 'B2 Web Solutions',
-    cta: opts.cta ?? 'Want a site that converts? DM us "WEBSITE"',
-    accentColor: opts.accentColor ?? '#22d3ee',
-    musicSrc: opts.musicSrc ?? null,
+    beforeMeta: toSiteMeta(beforeMeta),
+    afterMeta: toSiteMeta(afterMeta),
+    beforeSeconds,
+    afterSeconds,
   };
+
+  // Fit an exact duration target by scaling the two site segments.
+  if (opts.durationTarget) {
+    const fixed = getSegments({ ...inputProps, beforeSeconds: 0, afterSeconds: 0 });
+    const fixedSeconds = fixed.total / inputProps.fps;
+    const budget = Math.max(opts.durationTarget - fixedSeconds, 6);
+    const ratio = budget / (beforeSeconds + afterSeconds);
+    inputProps.beforeSeconds = Math.max(3, beforeSeconds * ratio);
+    inputProps.afterSeconds = Math.max(3, afterSeconds * ratio);
+  }
 
   log('bundling Remotion project…');
   const serveUrl = await bundle({
@@ -74,19 +96,21 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     browserExecutable: process.env.REMOTION_CHROME || undefined,
   });
 
-  // Containers report the host's core count, and Remotion's default
-  // concurrency (cores/2) would open dozens of browser tabs — the OOM killer
-  // then SIGKILLs the encode. Two tabs render a reel fine in ~2GB of RAM.
+  // Containers report the host's core count; Remotion's default concurrency
+  // (cores/2) would open dozens of browser tabs and get OOM-killed.
   const concurrency = Number(process.env.REMOTION_CONCURRENCY || 2);
 
   ensureDir(path.dirname(path.resolve(opts.outPath)));
-  log(`rendering ${composition.durationInFrames} frames at ${composition.width}x${composition.height}…`);
+  log(
+    `rendering ${composition.durationInFrames} frames at ${composition.width}x${composition.height}@${composition.fps}fps…`,
+  );
   await renderMedia({
     composition,
     serveUrl,
     codec: 'h264',
-    // veryfast slashes x264's lookahead/reference buffers — the quality
-    // difference is invisible on a social reel, the memory difference isn't.
+    // Keep website text crisp: high-quality source frames, low CRF.
+    crf: 16,
+    jpegQuality: 92,
     x264Preset: 'veryfast',
     outputLocation: opts.outPath,
     inputProps,

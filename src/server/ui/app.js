@@ -30,6 +30,8 @@ $('#job-form').addEventListener('submit', async (e) => {
   const errEl = $('#job-error');
   errEl.hidden = true;
   const data = Object.fromEntries(new FormData(form).entries());
+  if (data.fps) data.fps = Number(data.fps);
+  if (data.durationTarget) data.durationTarget = Number(data.durationTarget);
   try {
     await api('/api/jobs', { method: 'POST', body: JSON.stringify(data) });
     form.beforeUrl.value = '';
@@ -71,6 +73,7 @@ function jobCard(job) {
       </div>
       <span class="badge badge-${job.status}">${STATUS_LABELS[job.status] || job.status}</span>
     </div>
+    ${busy && job.stage ? `<div class="muted small stage">${escapeHtml(job.stage)}</div>` : ''}
     ${job.status === 'rendering' ? `<div class="progress"><div style="width:${pct}%"></div></div><div class="muted small">${pct}%</div>` : ''}
     ${busy && job.status !== 'rendering' ? '<div class="progress indeterminate"><div></div></div>' : ''}
     ${job.error ? `<p class="error">${escapeHtml(job.error)}</p>` : ''}

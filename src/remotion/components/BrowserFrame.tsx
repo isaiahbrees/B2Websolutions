@@ -1,62 +1,73 @@
 import React from 'react';
-import { colors, font } from '../theme';
+import { font, type Theme } from '../theme';
+
+export const CHROME_BAR_H = 62;
 
 /**
- * A fake browser window (traffic lights + URL bar) that clips its children.
- * Gives raw website footage the "product shot" look.
+ * A realistic minimal browser window (traffic lights + URL pill) that clips
+ * its children. Soft shadow and rounded corners give the "product shot" look.
  */
 export const BrowserFrame: React.FC<{
   url: string;
   width: number;
   height: number;
+  theme: Theme;
   children: React.ReactNode;
-}> = ({ url, width, height, children }) => {
-  const barHeight = 64;
+}> = ({ url, width, height, theme, children }) => {
   return (
     <div
       style={{
         width,
         height,
-        borderRadius: 24,
+        borderRadius: 22,
         overflow: 'hidden',
-        background: colors.chrome,
-        boxShadow: '0 40px 100px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08)',
+        background: theme.chrome,
+        boxShadow: theme.frameShadow,
       }}
     >
       <div
         style={{
-          height: barHeight,
-          background: colors.chromeBar,
+          height: CHROME_BAR_H,
+          background: theme.chromeBar,
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
-          padding: '0 24px',
+          gap: 9,
+          padding: '0 22px',
         }}
       >
         {(['#ff5f57', '#febc2e', '#28c840'] as const).map((c) => (
-          <div key={c} style={{ width: 16, height: 16, borderRadius: 8, background: c }} />
+          <div key={c} style={{ width: 14, height: 14, borderRadius: 7, background: c }} />
         ))}
         <div
           style={{
-            marginLeft: 18,
+            marginLeft: 16,
             flex: 1,
-            height: 38,
-            borderRadius: 19,
-            background: 'rgba(0,0,0,0.35)',
+            height: 36,
+            borderRadius: 18,
+            background: 'rgba(120,120,128,0.14)',
             display: 'flex',
             alignItems: 'center',
-            padding: '0 20px',
+            justifyContent: 'center',
             fontFamily: font,
-            fontSize: 22,
-            color: colors.textDim,
+            fontSize: 20,
+            color: theme.chromeText,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
           }}
         >
           {url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
         </div>
+        <div style={{ width: 60 }} />
       </div>
-      <div style={{ width, height: height - barHeight, overflow: 'hidden', position: 'relative' }}>
+      <div
+        style={{
+          width,
+          height: height - CHROME_BAR_H,
+          overflow: 'hidden',
+          position: 'relative',
+          background: theme.cardBg,
+        }}
+      >
         {children}
       </div>
     </div>

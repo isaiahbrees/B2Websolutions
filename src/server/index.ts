@@ -66,6 +66,8 @@ app.get('/api/me', (req, res) => {
 const isHttpUrl = (v: unknown): v is string =>
   typeof v === 'string' && /^https?:\/\/\S+$/i.test(v);
 const POST_VIAS: PostVia[] = ['reel', 'facebook', 'make'];
+const oneOf = <T extends string>(v: unknown, allowed: readonly T[]): T | undefined =>
+  typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : undefined;
 
 app.post('/api/jobs', (req, res) => {
   const b = req.body ?? {};
@@ -79,17 +81,36 @@ app.post('/api/jobs', (req, res) => {
     return res.status(400).json({ error: `postVia must be one of ${POST_VIAS.join(', ')}` });
   }
   const optional = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const durationTarget = Number(b.durationTarget);
   const params: JobParams = {
     beforeUrl: b.beforeUrl,
     afterUrl: b.afterUrl,
     clientName: b.clientName.trim(),
-    headline: optional(b.headline),
-    brandName: optional(b.brandName),
-    cta: optional(b.cta),
-    accentColor: optional(b.accentColor),
     caption: optional(b.caption),
     postVia: b.postVia || null,
+    scrollSpeed: oneOf(b.scrollSpeed, ['slow', 'medium', 'fast'] as const),
+    durationTarget: durationTarget >= 12 && durationTarget <= 90 ? durationTarget : null,
+    style: {
+      title: optional(b.title),
+      tagline: optional(b.tagline),
+      services: optional(b.services),
+      cta: optional(b.cta),
+      beforeLabel: optional(b.beforeLabel),
+      afterLabel: optional(b.afterLabel),
+      brandName: optional(b.brandName),
+      logoUrl: isHttpUrl(b.logoUrl) ? b.logoUrl : undefined,
+      accentColor: optional(b.accentColor),
+      template: oneOf(b.template, ['clean', 'dark', 'split'] as const),
+      intensity: oneOf(b.intensity, ['subtle', 'balanced', 'cinematic'] as const),
+      resolution: oneOf(b.resolution, ['1080', '2160'] as const),
+      fps: b.fps === 60 || b.fps === '60' ? 60 : undefined,
+      musicSrc: isHttpUrl(b.musicUrl) ? b.musicUrl : undefined,
+    },
   };
+  // Drop undefined style keys so defaults apply cleanly.
+  params.style = Object.fromEntries(
+    Object.entries(params.style ?? {}).filter(([, v]) => v !== undefined),
+  ) as JobParams['style'];
   const job = createJob(params);
   res.status(201).json(job);
 });

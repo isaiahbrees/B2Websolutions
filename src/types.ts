@@ -1,3 +1,11 @@
+export type PageSection = {
+  /** Absolute Y position in CSS px */
+  y: number;
+  /** Height in CSS px */
+  h: number;
+  kind: 'hero' | 'heading' | 'cards' | 'testimonial' | 'pricing' | 'stats' | 'gallery' | 'cta';
+};
+
 export type CaptureMeta = {
   url: string;
   title: string;
@@ -5,22 +13,13 @@ export type CaptureMeta = {
   cssWidth: number;
   /** CSS pixel height of the captured area (may be capped) */
   cssHeight: number;
+  /** Actual pixel dimensions of the saved image — the source of truth the
+   * camera math uses. DOM-reported heights lie on animated sites. */
+  imageWidth: number;
+  imageHeight: number;
   deviceScaleFactor: number;
+  /** Detected page sections for the smart camera plan (CSS px coordinates) */
+  sections: PageSection[];
   imageFile: string;
   capturedAt: string;
-};
-
-export type ReelInputProps = {
-  clientName: string;
-  headline: string;
-  beforeImage: string;
-  afterImage: string;
-  beforeMeta: { width: number; height: number; url: string };
-  afterMeta: { width: number; height: number; url: string };
-  beforeSeconds: number;
-  afterSeconds: number;
-  brandName: string;
-  cta: string;
-  accentColor: string;
-  musicSrc: string | null;
 };

@@ -102,6 +102,8 @@ details.advanced[open] summary { margin-bottom: 4px; }
 .badge-done { background: rgba(52, 211, 153, 0.15); color: var(--green); }
 .badge-error { background: rgba(244, 63, 94, 0.15); color: var(--red); }
 
+.stage { margin-top: 10px; }
+
 .progress {
   height: 8px; border-radius: 4px; background: var(--panel-2);
   overflow: hidden; margin-top: 14px;

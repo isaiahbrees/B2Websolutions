@@ -13,19 +13,24 @@ npm run make -- \
 
 The pipeline:
 
-1. **Capture** — headless Chromium (Playwright) loads each URL, scrolls the
-   whole page to trigger lazy-loaded content, and saves a full-page screenshot
-   plus metadata (`src/capture.ts`).
+1. **Capture** — headless Chromium (Playwright) loads each URL, dismisses
+   cookie banners, waits for fonts, triggers lazy-loaded and scroll-reveal
+   content, saves a sharp retina full-page screenshot, and **detects page
+   sections** (hero, cards, testimonials, pricing, CTAs…) for the camera plan
+   (`src/capture.ts`).
 2. **Render** — a Remotion composition (`src/remotion/`) turns the captures
-   into a 1080×1920 reel: hook text → "BEFORE" scroll-through in a browser
-   frame (desaturated, red-tinted) → swipe → "AFTER" scroll-through with a
-   Screen-Studio-style zoom → branded end card with CTA.
+   into a vertical reel with a **smart camera**: eased human-feel scrolling,
+   gentle push-ins on detected sections with holds and pull-backs, a soft
+   flash transition, small BEFORE/AFTER corner labels, and branded intro/end
+   cards. Three templates (Clean Agency, Dark Luxury, Split Comparison),
+   three camera intensities, three scroll speeds, 1080p or 4K, 30 or 60 fps.
 3. **Post** — the mp4 is published to your Facebook Page as a Reel or feed
    video via the Meta Graph API (`src/post/facebook.ts`), or handed to a
    Make.com webhook if you'd rather let Make handle Facebook (`src/post/make.ts`).
 
-Because the "screen recording" is scripted, the whole camera path is known up
-front — no editing, no cursor tracking, same template every time.
+Because the "screen recording" is scripted, the whole camera path is planned
+up front from real page structure — no editing, no cursor tracking, and the
+result is deterministic and smooth at any frame rate.
 
 ## Setup
 
