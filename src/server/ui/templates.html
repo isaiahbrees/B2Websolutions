@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Templates — ReelForge</title>
+  <link rel="stylesheet" href="/assets/theme.css" />
+</head>
+<body>
+  <div class="shell">
+    <main class="main">
+      <div class="page-head">
+        <div><h1>Templates</h1><p class="sub">Every template drives the full pipeline — pacing, camera, colors, and copy.</p></div>
+      </div>
+      <div class="grid3" id="grid"></div>
+    </main>
+  </div>
+  <script src="/assets/shell.js"></script>
+  <script>
+    Shell.mount('templates');
+    const { api, esc } = Shell;
+    api('/api/catalog').then(({ templates }) => {
+      document.getElementById('grid').innerHTML = templates.map((t) => `
+        <div class="card card-hover" style="overflow:hidden;display:flex;flex-direction:column">
+          <div style="height:130px;background:${t.preview.bg};display:flex;align-items:center;justify-content:center;position:relative">
+            <span style="font-weight:800;color:${t.preview.fg};font-size:15px">${esc(t.name)}</span>
+            ${t.locked ? '<span class="lock" style="position:absolute;top:10px;right:12px;background:rgba(255,255,255,0.85);padding:3px 8px;border-radius:99px">Pro</span>' : ''}
+          </div>
+          <div style="padding:14px;display:grid;gap:8px;flex:1">
+            <div style="display:flex;gap:6px;flex-wrap:wrap">${t.tags.map((x) => `<span class="badge badge-gray">${esc(x)}</span>`).join('')}</div>
+            <p class="small muted">${esc(t.description)}</p>
+            <div class="small faint">Pacing ${t.pacing}× · ${esc(t.intensity)} camera · ${esc(t.musicTag)} music</div>
+            <a class="btn ${t.locked ? '' : 'btn-primary'}" style="margin-top:auto" href="${t.locked ? '/app/billing' : `/app/new?template=${t.id}`}">
+              ${t.locked ? 'Unlock with Pro' : 'Use this template'}
+            </a>
+          </div>
+        </div>`).join('');
+    });
+  </script>
+</body>
+</html>

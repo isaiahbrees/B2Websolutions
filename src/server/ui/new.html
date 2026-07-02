@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>New reel — ReelForge</title>
+  <link rel="stylesheet" href="/assets/theme.css" />
+  <style>
+    .steps { display: flex; gap: 6px; align-items: center; margin-bottom: 24px; flex-wrap: wrap; }
+    .step-dot { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text-3); }
+    .step-dot .n { width: 20px; height: 20px; border-radius: 10px; background: var(--bg-sunken); border: 1px solid var(--border-strong); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+    .step-dot.active { color: var(--text); }
+    .step-dot.active .n { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .step-dot.done .n { background: var(--green-soft); border-color: var(--green); color: var(--green); }
+    .step-sep { width: 22px; height: 1px; background: var(--border-strong); }
+    .wizard-step { display: none; }
+    .wizard-step.active { display: block; animation: stepIn 0.22s var(--ease); }
+    @keyframes stepIn { from { opacity: 0; transform: translateY(6px); } }
+    .pick { border: 1.5px solid var(--border); border-radius: var(--r-lg); padding: 16px; cursor: pointer; transition: all 0.15s var(--ease); background: var(--bg-raised); }
+    .pick:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+    .pick.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .pick h3 { font-size: 14px; margin-bottom: 4px; }
+    .pick p { font-size: 12.5px; color: var(--text-2); }
+    .tpl-art { height: 92px; border-radius: var(--r-md); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; margin-bottom: 10px; }
+    .foot { display: flex; justify-content: space-between; margin-top: 26px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <main class="main" style="max-width: 760px">
+      <div class="page-head"><div><h1>New reel</h1><p class="sub">Five quick steps — most people only need the first one.</p></div></div>
+      <div class="steps" id="steps"></div>
+
+      <!-- 1: basics -->
+      <section class="wizard-step card card-pad" data-step="1">
+        <div style="display:grid;gap:16px">
+          <div class="grid2">
+            <div class="field"><label>Project name <span class="hint">optional</span></label><input class="input" id="f-projectName" placeholder="Acme relaunch" /></div>
+            <div class="field"><label>Client / business name</label><input class="input" id="f-clientName" placeholder="Acme Plumbing" required /></div>
+          </div>
+          <div class="field">
+            <label>Before website URL <span class="hint">tip: use a web.archive.org snapshot if the old site is gone</span></label>
+            <input class="input" id="f-beforeUrl" type="url" placeholder="https://web.archive.org/web/2024/https://old-site.com" />
+          </div>
+          <div class="field"><label>After website URL</label><input class="input" id="f-afterUrl" type="url" placeholder="https://shiny-new-site.com" /></div>
+          <div class="grid2">
+            <div class="field"><label>Industry <span class="hint">tunes captions</span></label>
+              <select class="input" id="f-industry">
+                <option value="">Not specified</option>
+                <option>Restaurant</option><option>Roofing</option><option>Salon</option><option>Real estate</option>
+                <option>SaaS</option><option>Ecommerce</option><option>Healthcare</option><option>Legal</option><option>Other</option>
+              </select>
+            </div>
+            <div class="field"><label>Brand kit</label><select class="input" id="f-brandKitId"><option value="">None</option></select></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2: story -->
+      <section class="wizard-step" data-step="2"><div class="grid2" id="story-grid"></div></section>
+
+      <!-- 3: template -->
+      <section class="wizard-step" data-step="3"><div class="grid2" id="tpl-grid"></div></section>
+
+      <!-- 4: format -->
+      <section class="wizard-step" data-step="4">
+        <div class="grid3" id="fmt-grid"></div>
+        <div class="card card-pad" style="margin-top:14px">
+          <div class="grid3">
+            <div class="field"><label>Resolution</label>
+              <select class="input" id="f-resolution">
+                <option value="1080">1080p</option>
+                <option value="2160">4K</option>
+                <option value="720">720p</option>
+              </select>
+            </div>
+            <div class="field"><label>Frame rate</label>
+              <select class="input" id="f-fps"><option value="60">60 fps</option><option value="30">30 fps</option></select>
+            </div>
+            <div class="field"><label>Scroll speed</label>
+              <select class="input" id="f-scrollSpeed">
+                <option value="medium">Medium (social)</option>
+                <option value="slow">Slow & cinematic</option>
+                <option value="fast">Fast overview</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5: review -->
+      <section class="wizard-step" data-step="5">
+        <div class="card card-pad" id="review"></div>
+        <p class="small faint" style="margin-top:10px">Capture + render usually takes 5–10 minutes. You can keep working — progress shows on the dashboard.</p>
+      </section>
+
+      <div class="foot">
+        <button class="btn" id="back" hidden>← Back</button>
+        <span></span>
+        <button class="btn btn-primary btn-lg" id="next">Continue →</button>
+      </div>
+      <p class="small" id="wiz-error" style="color:var(--red);margin-top:10px" hidden></p>
+    </main>
+  </div>
+  <script src="/assets/shell.js"></script>
+  <script>
+    Shell.mount('new');
+    const { api, esc, toast, upgradeModal } = Shell;
+    const state = { step: 1, storyType: 'redesign-reveal', templateId: new URLSearchParams(location.search).get('template') || 'clean-agency', format: 'reel' };
+    const STEPS = ['Basics', 'Story', 'Template', 'Format', 'Create'];
+    let catalog = null;
+
+    function renderSteps() {
+      document.getElementById('steps').innerHTML = STEPS.map((s, i) => {
+        const n = i + 1;
+        const cls = n === state.step ? 'active' : n < state.step ? 'done' : '';
+        return `<span class="step-dot ${cls}"><span class="n">${n < state.step ? '✓' : n}</span>${s}</span>${n < 5 ? '<span class="step-sep"></span>' : ''}`;
+      }).join('');
+      document.querySelectorAll('.wizard-step').forEach((el) => el.classList.toggle('active', Number(el.dataset.step) === state.step));
+      document.getElementById('back').hidden = state.step === 1;
+      document.getElementById('next').textContent = state.step === 5 ? '✨ Generate reel' : 'Continue →';
+    }
+
+    api('/api/catalog').then((c) => {
+      catalog = c;
+      document.getElementById('story-grid').innerHTML = c.storyTypes.map((s) =>
+        `<div class="pick ${s.id === state.storyType ? 'selected' : ''}" data-story="${s.id}"><h3>${esc(s.name)}</h3><p>${esc(s.blurb)}</p></div>`).join('');
+      document.getElementById('tpl-grid').innerHTML = c.templates.map((t) =>
+        `<div class="pick ${t.id === state.templateId ? 'selected' : ''} ${t.locked ? 'locked' : ''}" data-tpl="${t.id}">
+          <div class="tpl-art" style="background:${t.preview.bg};color:${t.preview.fg}">${esc(t.name)}</div>
+          <h3 style="display:flex;justify-content:space-between;align-items:center">${esc(t.name)} ${t.locked ? '<span class="lock">Pro</span>' : ''}</h3>
+          <p>${esc(t.description)}</p></div>`).join('');
+      document.getElementById('fmt-grid').innerHTML = c.formats.map((f) =>
+        `<div class="pick ${f.id === state.format ? 'selected' : ''}" data-fmt="${f.id}"><h3>${esc(f.name)}</h3><p class="mono" style="margin:2px 0">${f.dims}</p><p>${esc(f.use)}</p></div>`).join('');
+      document.querySelectorAll('[data-story]').forEach((el) => (el.onclick = () => {
+        state.storyType = el.dataset.story;
+        const st = c.storyTypes.find((s) => s.id === state.storyType);
+        if (st) { state.templateId = st.suggestedTemplate; api && renderPicks(); }
+        renderPicks();
+      }));
+      document.querySelectorAll('[data-tpl]').forEach((el) => (el.onclick = () => { state.templateId = el.dataset.tpl; renderPicks(); }));
+      document.querySelectorAll('[data-fmt]').forEach((el) => (el.onclick = () => { state.format = el.dataset.fmt; renderPicks(); }));
+    });
+    api('/api/brandkits').then((kits) => {
+      const sel = document.getElementById('f-brandKitId');
+      for (const k of kits) sel.insertAdjacentHTML('beforeend', `<option value="${k.id}">${esc(k.name)}</option>`);
+      const def = Shell.workspace?.defaultBrandKitId;
+      if (def) sel.value = def;
+    });
+    document.addEventListener('workspace', (e) => {
+      const plan = e.detail.plan;
+      const res = document.getElementById('f-resolution');
+      if (plan.maxResolution !== '2160') res.querySelector('[value="2160"]').textContent = '4K — Pro';
+      if (plan.maxResolution === '720') { res.value = '720'; }
+      if (!plan.fps60) document.getElementById('f-fps').value = '30';
+    });
+
+    function renderPicks() {
+      document.querySelectorAll('[data-story]').forEach((el) => el.classList.toggle('selected', el.dataset.story === state.storyType));
+      document.querySelectorAll('[data-tpl]').forEach((el) => el.classList.toggle('selected', el.dataset.tpl === state.templateId));
+      document.querySelectorAll('[data-fmt]').forEach((el) => el.classList.toggle('selected', el.dataset.fmt === state.format));
+    }
+
+    const v = (id) => document.getElementById(id).value.trim();
+    function validate() {
+      if (state.step !== 1) return null;
+      if (!v('f-clientName')) return 'Client / business name is required.';
+      for (const f of ['f-beforeUrl', 'f-afterUrl']) {
+        if (!/^https?:\/\/\S+$/i.test(v(f))) return 'Both URLs must be full links starting with http(s)://';
+      }
+      return null;
+    }
+
+    document.getElementById('back').onclick = () => { state.step--; renderSteps(); };
+    document.getElementById('next').onclick = async () => {
+      const errEl = document.getElementById('wiz-error');
+      errEl.hidden = true;
+      const problem = validate();
+      if (problem) { errEl.textContent = problem; errEl.hidden = false; return; }
+      if (state.step < 5) {
+        state.step++;
+        if (state.step === 5) {
+          const tpl = catalog?.templates.find((t) => t.id === state.templateId);
+          const fmt = catalog?.formats.find((f) => f.id === state.format);
+          document.getElementById('review').innerHTML = `
+            <h2 style="margin-bottom:14px">Ready to generate</h2>
+            <div class="row-list">
+              ${[['Client', v('f-clientName')], ['Before', v('f-beforeUrl')], ['After', v('f-afterUrl')],
+                 ['Template', tpl?.name || state.templateId], ['Format', `${fmt?.name || ''} · ${document.getElementById('f-resolution').value}p · ${document.getElementById('f-fps').value}fps`]]
+                .map(([k, val]) => `<div style="display:flex;gap:12px"><span class="muted small" style="width:80px;flex:none;font-weight:600">${k}</span><span class="small" style="word-break:break-all">${esc(val)}</span></div>`).join('')}
+            </div>`;
+        }
+        renderSteps();
+        return;
+      }
+      const btn = document.getElementById('next');
+      btn.disabled = true; btn.textContent = 'Creating…';
+      try {
+        const project = await api('/api/projects', {
+          method: 'POST',
+          body: JSON.stringify({
+            projectName: v('f-projectName'), clientName: v('f-clientName'),
+            beforeUrl: v('f-beforeUrl'), afterUrl: v('f-afterUrl'),
+            industry: v('f-industry'), brandKitId: v('f-brandKitId'),
+            storyType: state.storyType, templateId: state.templateId, format: state.format,
+            resolution: v('f-resolution'), fps: Number(v('f-fps')), scrollSpeed: v('f-scrollSpeed'),
+          }),
+        });
+        toast('Project created — capturing both sites now');
+        location.href = `/app/project/${project.id}`;
+      } catch (err) {
+        btn.disabled = false; btn.textContent = '✨ Generate reel';
+        if (err.upgradeTo) upgradeModal(err.message, err.upgradeTo);
+        else { errEl.textContent = err.message; errEl.hidden = false; }
+      }
+    };
+    renderSteps();
+  </script>
+</body>
+</html>

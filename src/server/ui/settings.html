@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Settings — ReelForge</title>
+  <link rel="stylesheet" href="/assets/theme.css" />
+</head>
+<body>
+  <div class="shell">
+    <main class="main" style="max-width:680px">
+      <div class="page-head"><div><h1>Settings</h1><p class="sub">Workspace and integrations.</p></div></div>
+
+      <div class="card card-pad" style="display:grid;gap:14px;margin-bottom:16px">
+        <h3>Workspace</h3>
+        <div class="field"><label>Workspace name</label>
+          <div style="display:flex;gap:8px"><input class="input" id="ws-name" style="flex:1" /><button class="btn" id="ws-save">Save</button></div>
+        </div>
+        <div class="field"><label>Signed in as</label><input class="input" id="ws-email" disabled /></div>
+      </div>
+
+      <div class="card card-pad" style="display:grid;gap:12px;margin-bottom:16px">
+        <h3>Integrations</h3>
+        <div class="list-row" style="border-style:solid">
+          <span style="font-size:18px">📘</span>
+          <div style="flex:1"><div style="font-weight:600">Facebook Page</div><div class="small faint">Auto-post reels to your Page via the Graph API</div></div>
+          <span class="badge" id="fb-state">…</span>
+        </div>
+        <div class="list-row">
+          <span style="font-size:18px">⚡</span>
+          <div style="flex:1"><div style="font-weight:600">Make.com webhook</div><div class="small faint">Route videos to Instagram, TikTok, client pages and more</div></div>
+          <span class="badge" id="make-state">…</span>
+        </div>
+        <p class="small faint">Integrations are configured with environment variables on the server — see Help → “Connecting Facebook” for the 5-minute walkthrough. Instagram/TikTok/LinkedIn direct posting is on the roadmap and will appear here.</p>
+      </div>
+
+      <div class="card card-pad" style="display:grid;gap:10px">
+        <h3>Rendering defaults</h3>
+        <p class="small muted">Defaults applied to new projects (each project can override them in the wizard).</p>
+        <div class="grid3">
+          <div class="field"><label>Resolution</label><select class="input" id="d-res"><option value="1080">1080p</option><option value="2160">4K</option><option value="720">720p</option></select></div>
+          <div class="field"><label>Frame rate</label><select class="input" id="d-fps"><option value="60">60 fps</option><option value="30">30 fps</option></select></div>
+          <div class="field"><label>Scroll speed</label><select class="input" id="d-speed"><option value="medium">Medium</option><option value="slow">Slow</option><option value="fast">Fast</option></select></div>
+        </div>
+        <p class="small faint">Stored in this browser and pre-selected in the wizard.</p>
+      </div>
+    </main>
+  </div>
+  <script src="/assets/shell.js"></script>
+  <script>
+    Shell.mount('settings');
+    const { api, toast } = Shell;
+    document.addEventListener('workspace', (e) => {
+      document.getElementById('ws-name').value = e.detail.name;
+      document.getElementById('ws-email').value = e.detail.email || '';
+    });
+    document.getElementById('ws-save').onclick = async () => {
+      await api('/api/workspace', { method: 'PATCH', body: JSON.stringify({ name: document.getElementById('ws-name').value }) });
+      toast('Workspace saved');
+    };
+    // Integration status comes from whether env-driven posting works; probe cheaply.
+    api('/api/workspace').then(() => {
+      // Server exposes no secrets — states are inferred from posting config flags.
+      fetch('/api/integrations').then((r) => r.json()).then((s) => {
+        const set = (id, on) => { const el = document.getElementById(id); el.textContent = on ? 'Connected' : 'Not configured'; el.className = 'badge ' + (on ? 'badge-green' : 'badge-gray'); };
+        set('fb-state', s.facebook); set('make-state', s.make);
+      }).catch(() => {
+        document.getElementById('fb-state').textContent = '—';
+        document.getElementById('make-state').textContent = '—';
+      });
+    });
+    // local defaults
+    const defaults = JSON.parse(localStorage.getItem('rf-defaults') || '{}');
+    for (const [id, key] of [['d-res','resolution'],['d-fps','fps'],['d-speed','scrollSpeed']]) {
+      const el = document.getElementById(id);
+      if (defaults[key]) el.value = defaults[key];
+      el.addEventListener('change', () => {
+        defaults[key] = el.value;
+        localStorage.setItem('rf-defaults', JSON.stringify(defaults));
+        toast('Default saved');
+      });
+    }
+  </script>
+</body>
+</html>

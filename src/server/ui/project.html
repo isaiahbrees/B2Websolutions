@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project — ReelForge</title>
+  <link rel="stylesheet" href="/assets/theme.css" />
+  <style>
+    .workspace { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; }
+    @media (max-width: 1000px) { .workspace { grid-template-columns: 1fr; } }
+    .player-wrap { background: var(--bg-sunken); border: 1px solid var(--border); border-radius: var(--r-lg); display: flex; align-items: center; justify-content: center; min-height: 420px; padding: 18px; }
+    .player-wrap video { max-height: 62vh; max-width: 100%; border-radius: 10px; box-shadow: var(--shadow-lg); background: #000; }
+    .scene { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-raised); font-size: 12.5px; }
+    .scene .bar { width: 3px; align-self: stretch; border-radius: 2px; }
+    .scene-dwell { opacity: 0.75; margin-left: 18px; }
+    .copy-block { position: relative; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px; font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 150px; overflow: auto; }
+    .copy-btn { position: absolute; top: 6px; right: 6px; }
+    .side-card { display: grid; gap: 12px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <main class="main" style="max-width: 1180px">
+      <div class="page-head">
+        <div>
+          <h1 id="p-name"><span class="skeleton" style="display:inline-block;width:220px;height:24px"></span></h1>
+          <p class="sub" id="p-urls"></p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="p-status"></span>
+          <a class="btn" id="btn-download" hidden download>Download MP4</a>
+          <button class="btn" id="btn-share" hidden>Copy delivery link</button>
+        </div>
+      </div>
+
+      <div class="workspace">
+        <div style="display:grid;gap:16px">
+          <div class="player-wrap" id="player">
+            <div style="text-align:center" id="player-placeholder">
+              <div class="progress indeterminate" style="width:260px;margin:0 auto 14px"><div></div></div>
+              <div class="small muted" id="player-stage">Working…</div>
+            </div>
+          </div>
+
+          <div class="card card-pad" id="scenes-card" hidden>
+            <h3 style="margin-bottom:10px">Timeline</h3>
+            <div style="display:grid;gap:6px" id="scenes"></div>
+            <p class="small faint" style="margin-top:10px">Push-ins are planned automatically from sections detected on the page. Edit style on the right and re-render — captures are reused, so it’s fast.</p>
+          </div>
+
+          <div class="card card-pad" id="copy-card" hidden>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <h3>Social copy</h3>
+              <button class="btn btn-sm" id="btn-copy-regen">↻ Regenerate</button>
+            </div>
+            <div style="display:grid;gap:12px" id="copy-blocks"></div>
+          </div>
+        </div>
+
+        <div class="side-card">
+          <div class="card card-pad" style="display:grid;gap:12px">
+            <h3>Style</h3>
+            <div class="field"><label>Template</label><select class="input" id="s-templateId"></select></div>
+            <div class="field"><label>Intro title</label><input class="input" id="s-title" /></div>
+            <div class="grid2">
+              <div class="field"><label>Before label</label><input class="input" id="s-beforeLabel" /></div>
+              <div class="field"><label>After label</label><input class="input" id="s-afterLabel" /></div>
+            </div>
+            <div class="field"><label>End-card tagline</label><input class="input" id="s-tagline" /></div>
+            <div class="field"><label>CTA</label><input class="input" id="s-cta" /></div>
+            <div class="grid2">
+              <div class="field"><label>Camera</label>
+                <select class="input" id="s-intensity"><option value="subtle">Subtle</option><option value="balanced">Balanced</option><option value="cinematic">Cinematic</option></select>
+              </div>
+              <div class="field"><label>Accent</label><input class="input" type="color" id="s-accentColor" value="#0a84ff" /></div>
+            </div>
+            <button class="btn btn-primary" id="btn-rerender">Re-render with changes</button>
+            <p class="small faint">Uses the existing captures — a re-render takes a few minutes and counts as an export.</p>
+          </div>
+
+          <div class="card card-pad" style="display:grid;gap:10px">
+            <h3>Publish</h3>
+            <div style="display:flex;gap:8px">
+              <select class="input" id="post-via" style="flex:1">
+                <option value="reel">Facebook Reel</option>
+                <option value="facebook">Facebook feed video</option>
+                <option value="make">Make.com webhook</option>
+              </select>
+              <button class="btn" id="btn-post">Post</button>
+            </div>
+            <div class="small faint" id="post-state"></div>
+          </div>
+
+          <div class="card card-pad" style="display:grid;gap:8px">
+            <h3>Captures</h3>
+            <div style="display:flex;gap:10px" id="capture-thumbs"></div>
+          </div>
+
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" id="btn-duplicate">Duplicate</button>
+            <button class="btn btn-sm" id="btn-archive">Archive</button>
+            <button class="btn btn-sm btn-danger" id="btn-delete">Delete</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="/assets/shell.js"></script>
+  <script>
+    Shell.mount('projects');
+    const { api, esc, toast, modal, upgradeModal } = Shell;
+    const id = location.pathname.split('/').pop();
+    const SCENE_COLORS = { intro: '#7c3aed', before: '#f43f5e', split: '#f59e0b', after: '#16a34a', end: '#0a84ff', dwell: '#94a3b8' };
+    let project = null;
+    let styleDirty = false;
+
+    async function refresh() {
+      project = await api(`/api/projects/${id}`).catch(() => null);
+      if (!project) { location.href = '/app/projects'; return; }
+      document.title = `${project.params.projectName} — ReelForge`;
+      document.getElementById('p-name').textContent = project.params.projectName;
+      document.getElementById('p-urls').textContent =
+        `${project.params.beforeUrl.replace(/^https?:\/\//, '')} → ${project.params.afterUrl.replace(/^https?:\/\//, '')}`;
+
+      const busy = !['done', 'error'].includes(project.status);
+      const badge = { queued: ['Queued', 'badge-gray'], capturing: ['Capturing', 'badge-blue'], rendering: ['Rendering', 'badge-blue'], posting: ['Posting', 'badge-blue'], done: ['Ready', 'badge-green'], error: ['Failed', 'badge-red'] }[project.status];
+      document.getElementById('p-status').innerHTML = `<span class="badge ${badge[1]}"><span class="dot"></span>${badge[0]}</span>`;
+
+      const player = document.getElementById('player');
+      if (project.hasVideo && !busy) {
+        if (!player.querySelector('video')) {
+          player.innerHTML = `<video controls src="/api/projects/${id}/video"></video>`;
+        }
+        document.getElementById('btn-download').hidden = false;
+        document.getElementById('btn-download').href = `/api/projects/${id}/video`;
+        document.getElementById('btn-share').hidden = false;
+      } else if (project.status === 'error') {
+        player.innerHTML = `<div style="text-align:center;max-width:420px"><div style="font-size:22px;margin-bottom:8px">😵</div><div class="small" style="color:var(--red)">${esc(project.error || 'Something failed')}</div><button class="btn" style="margin-top:14px" onclick="location.href='/app/new'">Try again</button></div>`;
+      } else {
+        const stage = document.getElementById('player-stage');
+        if (stage) stage.textContent = project.stage || 'Working…';
+        if (project.status === 'rendering' && project.progress > 0) stage.textContent = `${project.stage} · ${Math.round(project.progress * 100)}%`;
+      }
+
+      // scenes
+      if (project.scenes?.length) {
+        document.getElementById('scenes-card').hidden = false;
+        document.getElementById('scenes').innerHTML = project.scenes.map((s) =>
+          `<div class="scene ${s.type === 'dwell' ? 'scene-dwell' : ''}">
+            <span class="bar" style="background:${SCENE_COLORS[s.type] || '#999'}"></span>
+            <span style="font-weight:600;min-width:110px">${esc(s.label)}</span>
+            <span class="faint mono">${s.startSec.toFixed(1)}s – ${(s.startSec + s.durationSec).toFixed(1)}s</span>
+            <span class="faint small" style="margin-left:auto">${s.editableFields.length ? 'editable →' : esc(s.detail || '')}</span>
+          </div>`).join('');
+      }
+
+      // copy
+      if (project.copy) {
+        document.getElementById('copy-card').hidden = false;
+        const blocks = [
+          ['Instagram', project.copy.captions.instagram], ['TikTok', project.copy.captions.tiktok],
+          ['Facebook', project.copy.captions.facebook], ['LinkedIn', project.copy.captions.linkedin],
+          ['Client delivery message', project.copy.deliveryMessage],
+        ];
+        document.getElementById('copy-blocks').innerHTML = blocks.map(([name, text], i) =>
+          `<div><div class="small" style="font-weight:650;margin-bottom:5px">${name}</div>
+           <div class="copy-block">${esc(text)}<button class="btn btn-sm copy-btn" data-copy="${i}">Copy</button></div></div>`).join('');
+        document.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = () => {
+          navigator.clipboard.writeText(blocks[Number(b.dataset.copy)][1]);
+          toast('Copied to clipboard');
+        }));
+      }
+
+      // captures
+      document.getElementById('capture-thumbs').innerHTML = ['before', 'after'].map((k) =>
+        project.captures?.[k]
+          ? `<figure style="margin:0"><div style="width:90px;height:120px;border-radius:8px;overflow:hidden;border:1px solid var(--border)"><img src="/api/projects/${id}/capture/${k}" style="width:100%;height:100%;object-fit:cover;object-position:top"></div><figcaption class="small faint" style="margin-top:4px">${k} · ${project.captures[k].cssWidth}×${project.captures[k].cssHeight}</figcaption></figure>`
+          : '').join('');
+
+      // style form (only fill once, don't stomp edits)
+      if (project.style && !styleDirty) {
+        for (const f of ['title', 'beforeLabel', 'afterLabel', 'tagline', 'cta']) {
+          document.getElementById(`s-${f}`).value = project.style[f] ?? '';
+        }
+        document.getElementById('s-intensity').value = project.style.intensity ?? 'balanced';
+        document.getElementById('s-accentColor').value = project.style.accentColor ?? '#0a84ff';
+      }
+      if (project.postedVia) document.getElementById('post-state').textContent = `Posted via ${project.postedVia}`;
+      if (busy) setTimeout(refresh, 2500);
+    }
+    document.querySelectorAll('.side-card input, .side-card select').forEach((el) => el.addEventListener('input', () => (styleDirty = true)));
+
+    api('/api/catalog').then(({ templates }) => {
+      const sel = document.getElementById('s-templateId');
+      sel.innerHTML = templates.map((t) => `<option value="${t.id}" ${t.locked ? 'disabled' : ''}>${esc(t.name)}${t.locked ? ' — Pro' : ''}</option>`).join('');
+      if (project?.params.templateId) sel.value = project.params.templateId;
+    });
+
+    document.getElementById('btn-rerender').onclick = async () => {
+      const val = (f) => document.getElementById(`s-${f}`).value.trim();
+      try {
+        await api(`/api/projects/${id}/rerender`, {
+          method: 'POST',
+          body: JSON.stringify({
+            templateId: val('templateId'), title: val('title'), beforeLabel: val('beforeLabel'),
+            afterLabel: val('afterLabel'), tagline: val('tagline'), cta: val('cta'),
+            intensity: val('intensity'), accentColor: val('accentColor'),
+          }),
+        });
+        styleDirty = false;
+        toast('Re-render queued');
+        document.getElementById('player').innerHTML = `<div style="text-align:center" id="player-placeholder"><div class="progress indeterminate" style="width:260px;margin:0 auto 14px"><div></div></div><div class="small muted" id="player-stage">Queued…</div></div>`;
+        refresh();
+      } catch (err) { err.upgradeTo ? upgradeModal(err.message, err.upgradeTo) : toast(err.message, 'err'); }
+    };
+    document.getElementById('btn-post').onclick = async () => {
+      const btn = document.getElementById('btn-post');
+      btn.disabled = true;
+      try {
+        await api(`/api/projects/${id}/post`, { method: 'POST', body: JSON.stringify({ via: document.getElementById('post-via').value }) });
+        toast('Posted 🎉');
+      } catch (err) { toast(err.message, 'err'); }
+      btn.disabled = false;
+      refresh();
+    };
+    document.getElementById('btn-share').onclick = () => {
+      navigator.clipboard.writeText(`${location.origin}/share/${project.shareToken}`);
+      toast('Delivery link copied — send it to your client');
+    };
+    document.getElementById('btn-duplicate').onclick = async () => {
+      try { const p = await api(`/api/projects/${id}/duplicate`, { method: 'POST' }); location.href = `/app/project/${p.id}`; }
+      catch (err) { err.upgradeTo ? upgradeModal(err.message, err.upgradeTo) : toast(err.message, 'err'); }
+    };
+    document.getElementById('btn-archive').onclick = async () => {
+      await api(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ archived: !project.archived }) });
+      toast(project.archived ? 'Unarchived' : 'Archived');
+      refresh();
+    };
+    document.getElementById('btn-delete').onclick = () => modal({
+      title: 'Delete this project?',
+      body: 'The video, captures and recordings are removed permanently. This can’t be undone.',
+      actions: [{ label: 'Cancel' }, { label: 'Delete', danger: true, onClick: async () => {
+        try { await api(`/api/projects/${id}`, { method: 'DELETE' }); location.href = '/app/projects'; }
+        catch (err) { toast(err.message, 'err'); }
+      } }],
+    });
+    document.getElementById('btn-copy-regen').onclick = async () => {
+      await api(`/api/projects/${id}/copy`, { method: 'POST', body: JSON.stringify({}) });
+      toast('Fresh copy generated');
+      refresh();
+    };
+    refresh();
+  </script>
+</body>
+</html>

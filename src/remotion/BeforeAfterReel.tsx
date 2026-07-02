@@ -9,16 +9,18 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
+import { CanvasCtx, FORMAT_DIMS, useCanvas } from './canvas';
 import { CameraPan } from './components/CameraPan';
 import { EndCard } from './components/EndCard';
 import { IntroCard } from './components/IntroCard';
 import { SplitBeat } from './components/SplitBeat';
-import { DESIGN_HEIGHT, DESIGN_WIDTH, getSegments, type ReelProps } from './schema';
-import { getTheme } from './theme';
+import { getSegments, type ReelProps } from './schema';
+import { font, getTheme } from './theme';
 
 const ProgressBar: React.FC<{ accentColor: string }> = ({ accentColor }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
+  const { W } = useCanvas();
   return (
     <div
       style={{
@@ -26,11 +28,36 @@ const ProgressBar: React.FC<{ accentColor: string }> = ({ accentColor }) => {
         bottom: 0,
         left: 0,
         height: 10,
-        width: (frame / durationInFrames) * DESIGN_WIDTH,
+        width: (frame / durationInFrames) * W,
         background: accentColor,
         zIndex: 10,
       }}
     />
+  );
+};
+
+const Watermark: React.FC<{ text: string }> = ({ text }) => {
+  const { H } = useCanvas();
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: Math.round(H * 0.02) + 14,
+        right: 22,
+        zIndex: 11,
+        fontFamily: font,
+        fontSize: 22,
+        fontWeight: 700,
+        letterSpacing: 0.3,
+        color: 'rgba(255,255,255,0.92)',
+        background: 'rgba(17,17,20,0.55)',
+        padding: '8px 16px',
+        borderRadius: 999,
+        backdropFilter: 'blur(6px)',
+      }}
+    >
+      {text}
+    </div>
   );
 };
 
@@ -61,8 +88,9 @@ export const BeforeAfterReel: React.FC<ReelProps> = (props) => {
       Math.min(1, f / (fps * 1.5), (durationInFrames - f) / (fps * 2)),
     ) * 0.35;
 
-  // Design at 1080x1920; scale up for 4K exports.
-  const k = width / DESIGN_WIDTH;
+  // Fixed design canvas per format; the whole canvas scales for 720p/4K.
+  const base = FORMAT_DIMS[props.format] ?? FORMAT_DIMS.reel;
+  const k = width / base.w;
 
   return (
     <AbsoluteFill style={{ background: theme.bg }}>
@@ -73,10 +101,11 @@ export const BeforeAfterReel: React.FC<ReelProps> = (props) => {
         />
       ) : null}
 
+      <CanvasCtx.Provider value={{ W: base.w, H: base.h }}>
       <div
         style={{
-          width: DESIGN_WIDTH,
-          height: DESIGN_HEIGHT,
+          width: base.w,
+          height: base.h,
           transform: `scale(${k})`,
           transformOrigin: 'top left',
           position: 'absolute',
@@ -160,8 +189,10 @@ export const BeforeAfterReel: React.FC<ReelProps> = (props) => {
           <AbsoluteFill style={{ background: theme.flash, opacity: flashOpacity, zIndex: 5 }} />
         ) : null}
 
+        {props.watermark ? <Watermark text={props.watermarkText} /> : null}
         <ProgressBar accentColor={props.accentColor} />
       </div>
+      </CanvasCtx.Provider>
     </AbsoluteFill>
   );
 };

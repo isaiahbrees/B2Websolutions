@@ -1,189 +1,104 @@
-# ReelWorks — before/after website reels, on autopilot
+# ReelForge
 
-Paste two URLs, get a polished vertical video showing the client's old site
-next to your redesign, and post it straight to your Facebook Page.
+**Turn website redesigns into scroll-stopping videos.**
 
-```
-npm run make -- \
-  --before "https://web.archive.org/web/2024/https://old-client-site.com" \
-  --after  "https://shiny-new-site.com" \
-  --client "Acme Plumbing" \
-  --post reel
-```
+Paste two URLs — a client's old site and your redesign — and ReelForge films
+both in a real browser with cinematic camera work, then renders a social-ready
+before/after video: Instagram Reels, TikToks, Facebook, LinkedIn, square posts.
 
-The pipeline:
+Built for web design agencies, freelancers, and anyone who ships redesigns and
+wants the content to prove it.
 
-1. **Capture** — headless Chromium (Playwright) loads each URL, dismisses
-   cookie banners, waits for fonts, triggers lazy-loaded and scroll-reveal
-   content, saves a sharp retina full-page screenshot, and **detects page
-   sections** (hero, cards, testimonials, pricing, CTAs…) for the camera plan
-   (`src/capture.ts`).
-2. **Render** — a Remotion composition (`src/remotion/`) turns the captures
-   into a vertical reel with a **smart camera**: eased human-feel scrolling,
-   gentle push-ins on detected sections with holds and pull-backs, a soft
-   flash transition, small BEFORE/AFTER corner labels, and branded intro/end
-   cards. Three templates (Clean Agency, Dark Luxury, Split Comparison),
-   three camera intensities, three scroll speeds, 1080p or 4K, 30 or 60 fps.
-3. **Post** — the mp4 is published to your Facebook Page as a Reel or feed
-   video via the Meta Graph API (`src/post/facebook.ts`), or handed to a
-   Make.com webhook if you'd rather let Make handle Facebook (`src/post/make.ts`).
+## How a reel gets made
 
-Because the "screen recording" is scripted, the whole camera path is planned
-up front from real page structure — no editing, no cursor tracking, and the
-result is deterministic and smooth at any frame rate.
+1. **Capture** — headless Chromium loads each URL, dismisses cookie banners
+   and marketing popups, forces lazy images eager, preserves WebGL scenes,
+   detects the visually interesting sections (hero, bento cards, testimonials,
+   pricing, CTAs), and takes a sharp full-page still.
+2. **Film** — a 60fps compositor screencast records a scripted *tour*:
+   glide to a section with eased acceleration, settle, dwell, glide on. The
+   footage is assembled into a seekable constant-frame-rate webm.
+3. **Compose** — a Remotion composition builds the story around the footage:
+   intro card, labeled before/after tours with camera push-ins timed to the
+   recorded dwells, a soft transition, branded end card, optional music bed,
+   watermark on free-plan exports.
+4. **Ship** — download the MP4, share a client delivery link, or post to a
+   Facebook Page directly. Platform captions, hashtags, and a client delivery
+   message are generated with every project.
 
-## Setup
+Every stage degrades gracefully: screencast → standard recorder → stills.
+A job always ends in a watchable reel.
 
-Requires Node 20+. Works on Windows, macOS, and Linux.
+## The product
+
+- **Landing page** at `/` and the app at `/app` (session login).
+- **Dashboard** — usage, active renders, recent projects, quick templates.
+- **New reel wizard** — basics → story type → template → format → generate.
+- **Project workspace** — preview player, scene timeline (with detected
+  camera dwells), style editor with fast re-render (captures are reused),
+  social copy panel, publish controls, client delivery link.
+- **8 templates** — Clean Agency, Dark Luxury, Split Comparison, Fast Social
+  Ad, Client Reveal, Portfolio Case Study, Local Business Upgrade, SaaS
+  Launch. Templates are data (`src/templates.ts`) driving pacing, camera
+  intensity, colors and copy.
+- **Brand kits** — per-client logo, colors, CTA, end-card message; the
+  default kit applies to new projects automatically.
+- **Assets** — logo/music uploads served to the renderer.
+- **Plans & usage** — Free / Starter $29 / Pro $79 / Agency $199 with real
+  enforcement: export quotas, resolution caps, 60fps, watermarking, brand-kit
+  limits, template gating, white-label delivery pages. Stripe-ready: gates go
+  through one module (`src/server/plans.ts`), plan ids map to future prices.
+
+## Run it locally
+
+Requires Node 20+.
 
 ```
 npm install
-npx playwright install chromium
-copy .env.example .env   # then fill in the values you need (macOS/Linux: cp)
+npx playwright install chromium ffmpeg
+cp .env.example .env    # set ADMIN_EMAIL, ADMIN_PASSWORD, SESSION_SECRET
+npm run web             # → http://localhost:3000
 ```
 
-The first render downloads Remotion's headless browser automatically.
+CLI (no UI): `npm run make -- --before <url> --after <url> --client "Name"`.
 
-## The web app
+## Deploy
 
-```
-npm run web
-```
+The renderer needs a long-lived server (headless Chrome + minutes-long
+renders), so serverless hosts (Vercel/Netlify functions) can't run it.
+The included `Dockerfile` deploys in one click on **Railway** (or Render/Fly):
 
-Open http://localhost:3000, sign in with the `ADMIN_EMAIL` / `ADMIN_PASSWORD`
-you set in `.env`, paste the two URLs, and hit **Create reel**. The dashboard
-shows live progress (capturing → rendering → posting), previews the finished
-video, and has one-click posting to Facebook (Reel or feed video) or Make.com.
-Jobs land in `out/jobs/` and survive restarts.
+1. railway.com → New Project → Deploy from GitHub repo.
+2. Variables: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SESSION_SECRET`, and
+   optionally `FB_PAGE_ID`/`FB_PAGE_ACCESS_TOKEN`, `MAKE_WEBHOOK_URL`,
+   `PLAN` (free|starter|pro|agency), `WORKSPACE_NAME`.
+3. Settings → Networking → Generate Domain.
 
-It's a single-login app for your agency. To let teammates in, share the login
-or put the app behind something like Cloudflare Access — proper multi-user
-accounts are on the roadmap. If you expose it to the internet, run it behind
-HTTPS (Caddy, nginx, Cloudflare Tunnel) and set a strong `SESSION_SECRET`.
+Give the service 2GB+ RAM. Workspace data lives in `data/`, projects in
+`out/jobs/` — attach a volume at `/app/data` and `/app/out` to survive
+redeploys.
 
-## Deploying it (get a real URL, not localhost)
-
-**Heads up: Vercel/Netlify won't work for this app.** They run serverless
-functions that must respond in seconds, with no persistent processes or disk —
-this app keeps a render queue alive and spends minutes per video in headless
-Chrome. You need a host that runs a long-lived server. The included
-`Dockerfile` makes that one click on:
-
-**Railway** (easiest):
-
-1. Go to [railway.com](https://railway.com) → **New Project** →
-   **Deploy from GitHub repo** → pick this repo and branch. It detects the
-   Dockerfile automatically.
-2. In the service's **Variables** tab, add `ADMIN_EMAIL`, `ADMIN_PASSWORD`,
-   `SESSION_SECRET` (any long random string), and your `FB_PAGE_ID` /
-   `FB_PAGE_ACCESS_TOKEN` (or `MAKE_WEBHOOK_URL`).
-3. **Settings → Networking → Generate Domain**. Open the URL, log in, make a
-   reel.
-
-**Render**: New → Web Service → connect the repo (runtime: Docker), add the
-same environment variables, pick at least the **2 GB RAM** instance — video
-rendering is hungry, 512 MB free-tier instances will fall over.
-
-Notes for hosted deploys:
-
-- Give the service **2 GB+ RAM and 2 vCPUs** for comfortable renders.
-- Job history lives on the container's disk (`out/jobs/`), which resets on
-  redeploy. Attach a volume mounted at `/app/out` if you want it to stick
-  around; finished videos are also posted/downloadable, so losing history is
-  cosmetic.
-- If you ever *do* want the Vercel-style serverless route, the play is
-  Remotion Lambda for rendering + a screenshot API for capture + S3 for
-  storage — a bigger rebuild, worth it only at real volume.
-
-## CLI usage
-
-Full pipeline (capture + render, no posting):
+## Architecture
 
 ```
-npm run make -- --before <url> --after <url> --client "Client Name"
+src/branding.ts            product name/tagline (rename = one file)
+src/templates.ts           template registry + story types + formats
+src/capture.ts             site analysis + stills (sections, popups, WebGL)
+src/screencast.ts          60fps CFR assembly from compositor frames
+src/render.ts              Remotion bundling/rendering, quality settings
+src/remotion/              composition: canvas formats, camera, components
+src/server/
+  index.ts                 routes (pages + JSON APIs)
+  jobs.ts                  project queue: capture → film → render → publish
+  store.ts                 data layer (JSON repos today, Postgres-shaped)
+  plans.ts                 plan catalog + gates (Stripe-ready)
+  copy.ts                  caption/hashtag/delivery-message generator
+  scenes.ts                scene model derived from real render info
+  auth.ts                  signed-cookie sessions
+  ui/                      landing + app pages (no build step)
 ```
 
-Everything lands in `out/<client>-<date>/` — check `reel.mp4`, then post it:
+## License note
 
-```
-npm run post -- --video out/acme-plumbing-2026-07-02/reel.mp4 --caption "..." --via reel
-```
-
-Or do it all in one shot with `--post reel` (Reel), `--post facebook`
-(feed video), or `--post make` (Make.com webhook).
-
-Useful flags on `run`/`render`:
-
-| Flag | What it does |
-| --- | --- |
-| `--headline "..."` | Hook line on the opening card |
-| `--brand "..."` / `--cta "..."` | End-card branding |
-| `--accent "#22d3ee"` | Accent color (progress bar, CTA pill) |
-| `--music music.mp3` | Background track (path relative to `public/`) |
-| `--scale 0.5` | Half-resolution render for fast previews |
-| `--caption "..."` | Facebook caption (defaults to headline + CTA) |
-
-Tips:
-
-- **The old site is usually already gone by the time you post.** Use a
-  Wayback Machine snapshot as the before URL:
-  `https://web.archive.org/web/2024/https://client-site.com`.
-- **Preview and tweak the template live** with `npm run studio` — edit props
-  in the right-hand panel, edit the look in `src/remotion/`.
-- **Music**: drop an mp3 into `public/` and pass `--music yourfile.mp3`.
-  Use licensed/royalty-free tracks — Facebook mutes or removes videos with
-  flagged audio.
-
-## Getting a Facebook token
-
-To post to a Page **you admin**, no app review is needed:
-
-1. Create an app at [developers.facebook.com](https://developers.facebook.com)
-   (type: Business).
-2. In [Graph API Explorer](https://developers.facebook.com/tools/explorer/),
-   select your app, click **Get User Access Token**, and grant
-   `pages_show_list`, `pages_manage_posts`, `pages_read_engagement`.
-3. Exchange it for a long-lived token (Graph Explorer → the ⓘ icon →
-   "Open in Access Token Tool" → Extend), then call `GET /me/accounts` —
-   the `access_token` in the response for your Page is a **Page token that
-   doesn't expire**. Put it in `.env` with the Page ID.
-
-Posting to **client-owned** Pages needs Meta app review for
-`pages_manage_posts` — that's the point where it's saner to route through
-Make.com (`--post make` + a "Custom webhook → Facebook Pages: Upload a Reel"
-scenario) or a scheduler like Buffer/Publer, which already have approved apps.
-
-## Project layout
-
-```
-src/cli.ts                  CLI (capture / render / post / run)
-src/capture.ts              Playwright full-page capture
-src/render.ts               Remotion bundling + rendering
-src/post/                   Graph API (feed video + Reels) and Make.com hand-off
-src/server/                 Web app: Express API, login, job queue
-  index.ts                  Routes (login, jobs, video streaming)
-  auth.ts                   Signed-cookie sessions from ADMIN_* env vars
-  jobs.ts                   Persistent job store + sequential render queue
-  ui/                       Dashboard (vanilla HTML/CSS/JS, no build step)
-src/remotion/               The video template (edit me!)
-  BeforeAfterReel.tsx       Timeline: hook → before → swipe → after → end card
-  components/SitePan.tsx    Scroll-through with zoom inside a browser frame
-  schema.ts                 Props, durations, segment layout
-public/                     Static assets (job captures are copied here)
-```
-
-## Roadmap / ideas
-
-- **Multi-user accounts** (per-teammate logins, a real database).
-- **Screen-recording drop-in**: accept an .mp4, normalize it (trim, pad,
-  speed-ramp) and slot it into the same template — for sites where a live
-  scroll-through with animations beats a screenshot pan.
-- **True auto-zoom on recordings** via a small helper that logs mouse events
-  while recording (the Screen Studio trick).
-- **Batch mode**: a CSV of clients → a reel per row.
-- **Mobile variant**: capture at 390px wide and show a phone frame.
-
-## Note on Remotion licensing
-
-Remotion is free for individuals and companies with up to 3 employees;
-larger teams need a [company license](https://remotion.dev/license).
+Remotion is free for individuals and companies up to 3 employees; larger
+teams need a [company license](https://remotion.dev/license).

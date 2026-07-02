@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Your new website video</title>
+  <link rel="stylesheet" href="/assets/theme.css" />
+</head>
+<body>
+  <main style="min-height:100vh;display:grid;place-items:center;padding:24px">
+    <div style="max-width:480px;width:100%;display:grid;gap:18px;justify-items:center">
+      <div style="text-align:center">
+        <h1 id="s-title" style="font-size:22px">Your new website video</h1>
+        <p class="muted small" id="s-sub" style="margin-top:6px"></p>
+      </div>
+      <video id="s-video" controls playsinline style="width:100%;max-width:380px;border-radius:14px;box-shadow:var(--shadow-lg);background:#000"></video>
+      <a class="btn btn-primary btn-lg" id="s-download" download>Download video</a>
+      <p class="small faint" id="s-powered" hidden></p>
+    </div>
+  </main>
+  <script>
+    const token = location.pathname.split('/').pop();
+    fetch(`/api/share/${token}`).then((r) => r.json()).then((s) => {
+      if (s.error) { document.getElementById('s-title').textContent = s.error; document.getElementById('s-video').hidden = true; document.getElementById('s-download').hidden = true; return; }
+      document.getElementById('s-title').textContent = `${s.projectName} — before & after`;
+      document.getElementById('s-sub').textContent = s.brandName ? `Prepared for you by ${s.brandName}` : 'Your website transformation video is ready.';
+      document.getElementById('s-video').src = `/api/share/${token}/video`;
+      document.getElementById('s-download').href = `/api/share/${token}/video`;
+      if (s.poweredBy) {
+        const p = document.getElementById('s-powered');
+        p.hidden = false;
+        p.textContent = `Made with ${s.poweredBy}`;
+      }
+    });
+  </script>
+</body>
+</html>

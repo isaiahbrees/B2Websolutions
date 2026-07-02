@@ -1,6 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Img, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
-import { DESIGN_WIDTH, type SiteMeta } from '../schema';
+import { useCanvas } from '../canvas';
+import { type SiteMeta } from '../schema';
 import { font, type Theme } from '../theme';
 
 const resolveSrc = (src: string) => (src.startsWith('http') ? src : staticFile(src));
@@ -17,8 +18,9 @@ export const SplitBeat: React.FC<{
 }> = ({ beforeImage, afterImage, beforeMeta, afterMeta, beforeLabel, afterLabel, theme }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const halfW = (DESIGN_WIDTH - 150) / 2;
-  const paneH = Math.round(halfW * 1.65);
+  const { W, H } = useCanvas();
+  const halfW = (W - 150) / 2;
+  const paneH = Math.min(Math.round(halfW * 1.65), H - 320);
 
   const pane = (
     img: string,

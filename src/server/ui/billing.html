@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plan & usage — ReelForge</title>
+  <link rel="stylesheet" href="/assets/theme.css" />
+  <style>
+    .plan-card { display: flex; flex-direction: column; gap: 12px; position: relative; }
+    .plan-card .price { font-size: 26px; font-weight: 750; letter-spacing: -0.02em; }
+    .plan-card .price span { font-size: 13px; color: var(--text-2); font-weight: 500; }
+    .plan-card ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; font-size: 12.5px; color: var(--text-2); }
+    .plan-card li::before { content: '✓ '; color: var(--green); font-weight: 700; }
+    .plan-current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .popular { position: absolute; top: -10px; right: 14px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <main class="main">
+      <div class="page-head"><div><h1>Plan &amp; usage</h1><p class="sub">Simple monthly plans. Change anytime.</p></div></div>
+
+      <div class="card card-pad" style="margin-bottom:24px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+          <h3>This month</h3>
+          <span class="small muted" id="u-label"></span>
+        </div>
+        <div class="meter" style="height:9px"><div id="u-bar" style="width:0%"></div></div>
+        <p class="small faint" style="margin-top:10px">Every finished render counts as one export. Re-renders count too — captures are reused but the render farm still works.</p>
+      </div>
+
+      <div class="grid4" id="plans" style="align-items:stretch"></div>
+
+      <div class="card card-pad" style="margin-top:24px">
+        <h3 style="margin-bottom:6px">Billing</h3>
+        <p class="small muted">Card payments aren’t wired up yet — plans switch instantly while you’re self-hosting. When Stripe is connected, this button becomes secure checkout, and the plan data model doesn’t change.</p>
+      </div>
+    </main>
+  </div>
+  <script src="/assets/shell.js"></script>
+  <script>
+    Shell.mount('billing');
+    const { api, esc, toast, modal } = Shell;
+    let current = null;
+
+    async function refresh() {
+      const ws = await api('/api/workspace');
+      current = ws.plan.id;
+      document.getElementById('u-label').textContent = `${ws.usage.used} of ${ws.usage.limit} exports used`;
+      const pct = Math.min(100, (ws.usage.used / ws.usage.limit) * 100);
+      const bar = document.getElementById('u-bar');
+      bar.style.width = pct + '%';
+      bar.parentElement.classList.toggle('warn', pct >= 75 && pct < 100);
+      bar.parentElement.classList.toggle('full', pct >= 100);
+
+      const { plans } = await api('/api/catalog');
+      document.getElementById('plans').innerHTML = plans.filter((p) => p.id !== 'enterprise').map((p) => `
+        <div class="card card-pad plan-card ${p.id === current ? 'plan-current' : ''}">
+          ${p.id === 'pro' ? '<span class="badge badge-blue popular">Most popular</span>' : ''}
+          <div><div style="font-weight:700">${esc(p.name)}</div>
+          <div class="price">${p.priceMonthly === 0 ? 'Free' : `$${p.priceMonthly}<span>/mo</span>`}</div></div>
+          <ul>${p.highlights.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>
+          <button class="btn ${p.id === current ? '' : 'btn-primary'}" style="margin-top:auto" data-plan="${p.id}" ${p.id === current ? 'disabled' : ''}>
+            ${p.id === current ? 'Current plan' : 'Switch to ' + esc(p.name)}
+          </button>
+        </div>`).join('') + `
+        <div class="card card-pad plan-card" style="grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between">
+          <div><div style="font-weight:700">Enterprise</div><p class="small muted">Custom usage, API access, dedicated rendering, SSO, custom templates.</p></div>
+          <a class="btn" href="mailto:${esc((Shell.workspace?.branding || {}).supportEmail || 'support@reelforge.app')}">Talk to us</a>
+        </div>`;
+      document.querySelectorAll('[data-plan]').forEach((b) => (b.onclick = () => modal({
+        title: `Switch to ${b.dataset.plan}?`,
+        body: 'Your limits update immediately. When Stripe is connected this will start a secure checkout instead.',
+        actions: [{ label: 'Cancel' }, { label: 'Switch plan', primary: true, onClick: async () => {
+          await api('/api/billing/plan', { method: 'POST', body: JSON.stringify({ plan: b.dataset.plan }) });
+          toast('Plan updated');
+          refresh();
+        } }],
+      })));
+    }
+    refresh();
+  </script>
+</body>
+</html>

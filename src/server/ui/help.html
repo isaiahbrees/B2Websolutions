@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Help — ReelForge</title>
+  <link rel="stylesheet" href="/assets/theme.css" />
+  <style>
+    details.faq { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px 16px; background: var(--bg-raised); }
+    details.faq summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+    details.faq p { margin-top: 10px; color: var(--text-2); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <main class="main" style="max-width:680px">
+      <div class="page-head"><div><h1>Help</h1><p class="sub">How ReelForge works, and how to get the best reels.</p></div></div>
+      <div style="display:grid;gap:10px">
+        <details class="faq" open>
+          <summary>How does a reel get made?</summary>
+          <p>ReelForge opens both websites in a real browser, dismisses cookie banners and popups, forces lazy content to load, detects the visually interesting sections (hero, cards, testimonials, CTAs), then <b>films a smooth scripted tour</b> — glide to a section, settle, dwell while the camera pushes in, glide on. The intro card, labels, transition, end card and music bed are composed around the footage and rendered to MP4.</p>
+        </details>
+        <details class="faq">
+          <summary>The old website doesn’t exist anymore</summary>
+          <p>Use the Wayback Machine: paste <span class="mono">https://web.archive.org/web/2024/https://client-site.com</span> as the before URL. Screenshot upload as a “before” source is on the roadmap.</p>
+        </details>
+        <details class="faq">
+          <summary>Connecting Facebook (5 minutes)</summary>
+          <p>1. Create a Business app at developers.facebook.com.<br>2. In Graph API Explorer grant <span class="mono">pages_show_list, pages_manage_posts, pages_read_engagement</span>.<br>3. Extend the token, call <span class="mono">/me/accounts</span>, and copy your Page’s token.<br>4. Set <span class="mono">FB_PAGE_ID</span> and <span class="mono">FB_PAGE_ACCESS_TOKEN</span> in the server’s environment variables and redeploy. The Post button then publishes directly to your Page. For client-owned pages, route through the Make.com webhook instead.</p>
+        </details>
+        <details class="faq">
+          <summary>Why does my export have a watermark?</summary>
+          <p>Free-plan exports include a small watermark. Starter and above export clean. Your current plan is on the <a href="/app/billing" style="color:var(--accent)">Plan &amp; usage</a> page.</p>
+        </details>
+        <details class="faq">
+          <summary>A site captured badly — what do I do?</summary>
+          <p>Check the before/after thumbnails on the project page first. Sites behind aggressive bot protection (Cloudflare challenges) may refuse automated visits. Popups that re-open constantly, or WebGL-heavy pages on small servers, occasionally fall back to “lite mode” (no 3D). Re-running the project usually helps; if a specific site consistently fails, send it to support — every hostile site we fix makes the engine better.</p>
+        </details>
+        <details class="faq">
+          <summary>What’s on the roadmap?</summary>
+          <p>Screenshot-upload as the before source · AI voiceovers · direct Instagram/TikTok/LinkedIn posting · client approval links · team seats · analytics · Zapier + API access. Roadmap items unlock per-plan as they land.</p>
+        </details>
+        <details class="faq">
+          <summary>Contact</summary>
+          <p>Email <a href="mailto:support@reelforge.app" style="color:var(--accent)" data-support>support@reelforge.app</a> — include the project ID from the URL if it’s about a specific reel.</p>
+        </details>
+      </div>
+    </main>
+  </div>
+  <script src="/assets/shell.js"></script>
+  <script>Shell.mount('help');</script>
+</body>
+</html>

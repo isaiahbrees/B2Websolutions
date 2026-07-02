@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ReelForge — Turn website redesigns into scroll-stopping videos</title>
+  <meta name="description" content="Paste two URLs and get a cinematic before/after video of your website redesign — ready for Instagram, TikTok, Facebook and LinkedIn." />
+  <link rel="stylesheet" href="/assets/theme.css" />
+  <style>
+    .wrap { max-width: 1060px; margin: 0 auto; padding: 0 22px; }
+    .topnav { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+    .topnav nav { display: flex; gap: 22px; font-size: 13.5px; color: var(--text-2); font-weight: 500; align-items: center; }
+    .topnav nav a:hover { color: var(--text); }
+
+    .hero { text-align: center; padding: 72px 0 40px; }
+    .hero h1 { font-size: clamp(34px, 5.6vw, 58px); letter-spacing: -0.03em; line-height: 1.08; max-width: 780px; margin: 0 auto; }
+    .hero .sub { font-size: clamp(15px, 2vw, 17.5px); color: var(--text-2); max-width: 560px; margin: 18px auto 30px; }
+    .hero-ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 650; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 5px 13px; margin-bottom: 22px; }
+
+    /* animated hero demo */
+    .demo { margin: 56px auto 0; max-width: 860px; position: relative; border-radius: 18px; padding: clamp(18px, 4vw, 44px); background: linear-gradient(135deg, var(--bg-sunken), var(--bg-raised)); border: 1px solid var(--border); box-shadow: var(--shadow-lg); overflow: hidden; }
+    .demo::before { content: ''; position: absolute; inset: -40%; background: radial-gradient(600px 300px at 30% 20%, var(--accent-soft), transparent 60%); pointer-events: none; }
+    .demo-stage { position: relative; height: clamp(240px, 40vw, 360px); }
+    .bw { position: absolute; width: 58%; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-lg); border: 1px solid var(--border); background: var(--bg-raised); }
+    .bw .bar { height: 22px; background: var(--bg-sunken); display: flex; align-items: center; gap: 4px; padding: 0 9px; border-bottom: 1px solid var(--border); }
+    .bw .bar i { width: 7px; height: 7px; border-radius: 4px; display: block; }
+    .bw .body { height: calc(100% - 22px); overflow: hidden; position: relative; }
+    .bw .page { position: absolute; inset: 0 0 auto 0; padding: 12px; display: grid; gap: 8px; animation: pageScroll 7s ease-in-out infinite; }
+    .b1 { left: 0; top: 8%; height: 74%; animation: swapA 7s ease-in-out infinite; z-index: 1; }
+    .b2 { right: 0; top: 16%; height: 78%; animation: swapB 7s ease-in-out infinite; z-index: 2; }
+    .ph { border-radius: 5px; background: var(--bg-sunken); }
+    .b1 .ph { background: #e5e0d8; }
+    .b1 .body { background: #f3efe7; }
+    .b2 .body { background: linear-gradient(180deg, #ffffff, #f2f6ff); }
+    .b2 .ph { background: #e3ecfb; }
+    .b2 .ph.hero-ph { background: linear-gradient(120deg, #dbeafe, #ede9fe); }
+    @keyframes pageScroll { 0%, 22% { transform: translateY(0); } 46%, 58% { transform: translateY(-34%); } 82%, 100% { transform: translateY(0); } }
+    @keyframes swapA { 0%, 40% { transform: scale(1); opacity: 1; } 52%, 88% { transform: scale(0.94) translateX(-4%); opacity: 0.45; } 100% { transform: scale(1); opacity: 1; } }
+    @keyframes swapB { 0%, 40% { transform: scale(0.96); } 52%, 88% { transform: scale(1.04); } 100% { transform: scale(0.96); } }
+    .demo-labels { position: absolute; z-index: 3; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; color: #fff; padding: 5px 12px; border-radius: 999px; box-shadow: var(--shadow-md); }
+    .lbl-before { left: 4%; top: 2%; background: #e8590c; }
+    .lbl-after { right: 4%; top: 9%; background: #0a9962; }
+
+    .logos { padding: 40px 0 8px; text-align: center; }
+    .logos .row { display: flex; gap: 12px 26px; justify-content: center; flex-wrap: wrap; margin-top: 14px; color: var(--text-3); font-weight: 650; font-size: 13px; }
+
+    section.block { padding: 72px 0 0; }
+    .block h2 { font-size: clamp(24px, 3.4vw, 32px); letter-spacing: -0.025em; text-align: center; }
+    .block .lead { text-align: center; color: var(--text-2); max-width: 520px; margin: 12px auto 36px; font-size: 15px; }
+    .feature { padding: 20px; }
+    .feature .fi { width: 34px; height: 34px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 16px; margin-bottom: 12px; }
+    .feature h3 { font-size: 14.5px; margin-bottom: 6px; }
+    .feature p { font-size: 13px; color: var(--text-2); }
+
+    .how { counter-reset: step; }
+    .how .step { display: flex; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--border); align-items: baseline; }
+    .how .step:last-child { border-bottom: 0; }
+    .how .n { counter-increment: step; font-family: var(--mono); color: var(--accent); font-weight: 700; font-size: 13px; }
+    .how .n::before { content: '0' counter(step); }
+
+    .tpl-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    @media (max-width: 800px) { .tpl-strip { grid-template-columns: repeat(2, 1fr); } }
+    .tpl-chip { border-radius: 12px; height: 84px; display: flex; align-items: flex-end; padding: 10px 12px; font-weight: 700; font-size: 12.5px; border: 1px solid var(--border); }
+
+    .price-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: stretch; }
+    @media (max-width: 900px) { .price-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .price-grid { grid-template-columns: 1fr; } }
+
+    footer.big {
+      margin-top: 90px; padding: 70px 0 40px;
+      background: var(--bg-sunken); border-top: 1px solid var(--border); text-align: center;
+    }
+    footer.big h2 { font-size: clamp(26px, 4vw, 38px); letter-spacing: -0.03em; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topnav">
+      <span style="display:flex;align-items:center;gap:9px;font-weight:700"><span class="logo-mark">R</span>ReelForge</span>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#templates">Templates</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+        <a class="btn btn-sm" href="/login">Sign in</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <span class="eyebrow">✦ The website transformation content engine</span>
+      <h1>Turn website redesigns into scroll-stopping videos.</h1>
+      <p class="sub">Paste the old URL and the new URL. ReelForge films both sites with cinematic camera work and renders a before/after reel that looks professionally edited — in minutes.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary btn-lg" href="/login">Create your first reel</a>
+        <a class="btn btn-lg" href="#how">See how it works</a>
+      </div>
+
+      <div class="demo" aria-hidden="true">
+        <div class="demo-stage">
+          <span class="demo-labels lbl-before">BEFORE</span>
+          <span class="demo-labels lbl-after">AFTER</span>
+          <div class="bw b1">
+            <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+            <div class="body"><div class="page" style="animation-delay:.2s">
+              <div class="ph" style="height:16px;width:55%"></div>
+              <div class="ph" style="height:9px;width:85%"></div>
+              <div class="ph" style="height:9px;width:70%"></div>
+              <div class="ph" style="height:56px"></div>
+              <div class="ph" style="height:9px;width:80%"></div>
+              <div class="ph" style="height:9px;width:65%"></div>
+              <div class="ph" style="height:44px"></div>
+              <div class="ph" style="height:9px;width:75%"></div>
+              <div class="ph" style="height:60px"></div>
+            </div></div>
+          </div>
+          <div class="bw b2">
+            <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+            <div class="body"><div class="page">
+              <div class="ph hero-ph" style="height:70px"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="ph" style="height:44px"></div><div class="ph" style="height:44px"></div>
+              </div>
+              <div class="ph" style="height:12px;width:45%"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                <div class="ph" style="height:38px"></div><div class="ph" style="height:38px"></div><div class="ph" style="height:38px"></div>
+              </div>
+              <div class="ph hero-ph" style="height:52px"></div>
+              <div class="ph" style="height:12px;width:55%"></div>
+              <div class="ph" style="height:46px"></div>
+            </div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="logos">
+      <span class="small faint" style="font-weight:650;letter-spacing:0.06em;text-transform:uppercase">Built for</span>
+      <div class="row">
+        <span>Web design agencies</span><span>Freelancers</span><span>Marketing teams</span>
+        <span>Developers</span><span>Local businesses</span><span>SaaS companies</span>
+      </div>
+    </section>
+
+    <section class="block" id="features">
+      <h2>Not a screen recorder. A content engine.</h2>
+      <p class="lead">Everything between “paste a link” and “post the reel” is automated — and everything that matters is editable.</p>
+      <div class="grid3">
+        <div class="card feature"><div class="fi">🎥</div><h3>AI camera direction</h3><p>Detects heroes, bento cards, testimonials, pricing and CTAs — then plans push-ins, dwells and pull-backs like a motion designer would.</p></div>
+        <div class="card feature"><div class="fi">🖱️</div><h3>Smart website filming</h3><p>Real browser, real scrolling. Cookie banners dismissed, lazy content forced, popups closed, WebGL scenes captured, 60fps output.</p></div>
+        <div class="card feature"><div class="fi">⚡</div><h3>Before/after storytelling</h3><p>Hook intro, labeled tours, a premium transition and a branded end card — structured like the reels that actually stop thumbs.</p></div>
+        <div class="card feature"><div class="fi">📱</div><h3>Social-ready exports</h3><p>Reels, TikToks, square posts and LinkedIn landscape. 1080p to 4K, watermark-free on paid plans.</p></div>
+        <div class="card feature"><div class="fi">🎨</div><h3>Brand kits</h3><p>Save each client’s logo, colors and CTA once. Every new reel comes out on-brand automatically.</p></div>
+        <div class="card feature"><div class="fi">✍️</div><h3>Captions written for you</h3><p>Platform-specific captions, hashtags and a client delivery message generated with every project.</p></div>
+      </div>
+    </section>
+
+    <section class="block" id="how">
+      <h2>How it works</h2>
+      <p class="lead">Four steps. The first two are just pasting.</p>
+      <div class="card card-pad how" style="max-width:560px;margin:0 auto">
+        <div class="step"><span class="n"></span><div><b>Paste the before URL</b><div class="small muted">The old site — or a Wayback Machine snapshot if it’s already gone.</div></div></div>
+        <div class="step"><span class="n"></span><div><b>Paste the after URL</b><div class="small muted">Your redesign, live or staged.</div></div></div>
+        <div class="step"><span class="n"></span><div><b>Pick a story & template</b><div class="small muted">Redesign reveal, client launch, case study, social ad — each with its own pacing and copy.</div></div></div>
+        <div class="step"><span class="n"></span><div><b>Export a premium reel</b><div class="small muted">Download, share a client delivery link, or post straight to Facebook.</div></div></div>
+      </div>
+    </section>
+
+    <section class="block" id="templates">
+      <h2>Templates with taste</h2>
+      <p class="lead">Each template drives pacing, camera intensity, colors and copy — not just a skin.</p>
+      <div class="tpl-strip">
+        <div class="tpl-chip" style="background:linear-gradient(135deg,#f5f5f7,#e8eef7);color:#1d1d1f">Clean Agency</div>
+        <div class="tpl-chip" style="background:linear-gradient(135deg,#101013,#1d1a24);color:#e9e2d4">Dark Luxury</div>
+        <div class="tpl-chip" style="background:linear-gradient(90deg,#f3f4f6 50%,#111318 50%);color:#0a84ff">Split Comparison</div>
+        <div class="tpl-chip" style="background:linear-gradient(135deg,#fff1f2,#ffe4e6);color:#f43f5e">Fast Social Ad</div>
+        <div class="tpl-chip" style="background:linear-gradient(135deg,#ecfdf5,#d1fae5);color:#16a34a">Client Reveal</div>
+        <div class="tpl-chip" style="background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#334155">Case Study</div>
+        <div class="tpl-chip" style="background:linear-gradient(135deg,#fffbeb,#fef3c7);color:#d97706">Local Business</div>
+        <div class="tpl-chip" style="background:linear-gradient(135deg,#171123,#2b1d4d);color:#a78bfa">SaaS Launch</div>
+      </div>
+    </section>
+
+    <section class="block" id="pricing">
+      <h2>Pricing that scales with your output</h2>
+      <p class="lead">Start free. Upgrade when the reels start winning you clients.</p>
+      <div class="price-grid" id="price-grid"></div>
+      <p class="small faint" style="text-align:center;margin-top:16px">Enterprise: custom usage, API access, dedicated rendering, SSO — <a href="mailto:support@reelforge.app" style="color:var(--accent)">talk to us</a>.</p>
+    </section>
+
+    <section class="block" id="faq" style="max-width:640px;margin:0 auto">
+      <h2>Questions, answered</h2>
+      <div style="display:grid;gap:10px;margin-top:30px">
+        <details class="card card-pad"><summary style="font-weight:600;cursor:pointer">What if the old website is already gone?</summary><p class="muted small" style="margin-top:8px">Paste a Wayback Machine snapshot as the before URL — ReelForge films archives just like live sites.</p></details>
+        <details class="card card-pad"><summary style="font-weight:600;cursor:pointer">Do I need to record or edit anything?</summary><p class="muted small" style="margin-top:8px">No. ReelForge opens both sites in a real browser, films a scripted camera tour, and composes the full video — intro, labels, transition, end card, music bed.</p></details>
+        <details class="card card-pad"><summary style="font-weight:600;cursor:pointer">Can I use my client’s branding?</summary><p class="muted small" style="margin-top:8px">Yes — brand kits store each client’s logo, colors, CTA and end-card message, and apply automatically to new projects.</p></details>
+        <details class="card card-pad"><summary style="font-weight:600;cursor:pointer">Where can I post the videos?</summary><p class="muted small" style="margin-top:8px">Exports are standard MP4s sized for Instagram Reels, TikTok, Facebook, LinkedIn or square feeds. Facebook Pages can be posted to directly; other networks via download or Make.com.</p></details>
+        <details class="card card-pad"><summary style="font-weight:600;cursor:pointer">Does it work on animated / WebGL sites?</summary><p class="muted small" style="margin-top:8px">Yes — the filming pipeline captures the browser’s real output, including three.js scenes, scroll animations and video backgrounds.</p></details>
+      </div>
+    </section>
+  </div>
+
+  <footer class="big">
+    <div class="wrap">
+      <h2>Your next client is scrolling right now.</h2>
+      <p class="muted" style="margin:14px 0 26px">Give them a reason to stop.</p>
+      <a class="btn btn-primary btn-lg" href="/login">Create your first reel</a>
+      <p class="small faint" style="margin-top:44px">© <span id="y"></span> ReelForge · <a href="/app/help">Help</a> · <a href="mailto:support@reelforge.app">Contact</a></p>
+    </div>
+  </footer>
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+    fetch('/api/branding').then((r) => r.json()).then((b) => {
+      document.querySelectorAll('.topnav span:first-child, footer .small').forEach(() => {});
+    }).catch(() => {});
+    const PLANS = [
+      { name: 'Free', price: '0', items: ['3 exports / month', '720p, watermarked', 'Core templates'] },
+      { name: 'Starter', price: '29', items: ['20 videos / month', '1080p, no watermark', 'Brand kit', 'All core templates'] },
+      { name: 'Pro', price: '79', pop: true, items: ['75 videos / month', '4K export', 'AI captions & social copy', 'Multiple brand kits', 'Priority rendering'] },
+      { name: 'Agency', price: '199', items: ['250 videos / month', 'Client brand kits', 'White-label delivery pages', 'Team seats'] },
+    ];
+    document.getElementById('price-grid').innerHTML = PLANS.map((p) => `
+      <div class="card card-pad" style="display:flex;flex-direction:column;gap:12px;position:relative;${p.pop ? 'border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)' : ''}">
+        ${p.pop ? '<span class="badge badge-blue" style="position:absolute;top:-10px;right:14px">Most popular</span>' : ''}
+        <div style="font-weight:700">${p.name}</div>
+        <div style="font-size:26px;font-weight:750">$${p.price}<span style="font-size:13px;color:var(--text-2);font-weight:500">/mo</span></div>
+        <ul style="margin:0;padding:0;list-style:none;display:grid;gap:7px;font-size:12.5px;color:var(--text-2)">
+          ${p.items.map((i) => `<li>✓ ${i}</li>`).join('')}
+        </ul>
+        <a class="btn ${p.pop ? 'btn-primary' : ''}" style="margin-top:auto" href="/login">Get started</a>
+      </div>`).join('');
+  </script>
+</body>
+</html>

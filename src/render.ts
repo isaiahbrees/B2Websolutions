@@ -4,7 +4,7 @@ import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
 import { defaultReelProps, getSegments, type ReelProps } from './remotion/schema';
 import type { CaptureMeta, ScrollVideoInfo } from './types';
-import { ensureDir, log, readJson } from './util';
+import { ensureDir, log, readJson, writeJson } from './util';
 
 export type ScrollSpeed = 'slow' | 'medium' | 'fast';
 
@@ -21,6 +21,8 @@ export type RenderOptions = {
   scale?: number;
   /** Skip live recordings and render from stills (crash-recovery path). */
   ignoreVideos?: boolean;
+  /** Template pacing multiplier — stretches/compresses still-footage scenes. */
+  pace?: number;
   onProgress?: (progress: number) => void;
 };
 
@@ -71,8 +73,9 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
   fs.copyFileSync(path.join(opts.afterDir, 'site.jpg'), path.join(jobDir, 'after.jpg'));
 
   const speed = opts.scrollSpeed ?? 'medium';
-  let beforeSeconds = autoSeconds(beforeMeta, speed, 'before');
-  let afterSeconds = autoSeconds(afterMeta, speed, 'after');
+  const pace = opts.pace ?? 1;
+  let beforeSeconds = autoSeconds(beforeMeta, speed, 'before') * pace;
+  let afterSeconds = autoSeconds(afterMeta, speed, 'after') * pace;
 
   // Live scroll recordings take priority: the segment plays the whole video.
   const beforeVideo = opts.ignoreVideos ? null : readVideoInfo(opts.beforeDir);
@@ -187,6 +190,16 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     },
   });
   if (!opts.onProgress) process.stdout.write('\n');
+  // Persist what was actually rendered so the workspace timeline shows true
+  // scene timings (schema-drift-safe: consumers treat this as advisory).
+  writeJson(path.join(path.dirname(path.resolve(opts.outPath)), 'render-info.json'), {
+    beforeSeconds: inputProps.beforeSeconds,
+    afterSeconds: inputProps.afterSeconds,
+    fps: inputProps.fps,
+    template: inputProps.template,
+    format: inputProps.format,
+    renderedAt: new Date().toISOString(),
+  });
   log(`rendered ${opts.outPath}`);
   return opts.outPath;
 }

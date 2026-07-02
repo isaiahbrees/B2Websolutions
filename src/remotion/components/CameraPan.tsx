@@ -10,7 +10,8 @@ import {
   useVideoConfig,
 } from 'remotion';
 import { buildCameraPath, buildVideoZoom } from '../camera';
-import { DESIGN_HEIGHT, DESIGN_WIDTH, type ReelProps, type SiteMeta, type VideoInfo } from '../schema';
+import { useCanvas } from '../canvas';
+import { type ReelProps, type SiteMeta, type VideoInfo } from '../schema';
 import { font, type Theme } from '../theme';
 import { BrowserFrame, CHROME_BAR_H } from './BrowserFrame';
 
@@ -40,18 +41,22 @@ export const CameraPan: React.FC<{
 }> = ({ image, video, videoInfo, meta, durationInFrames: d, label, labelColor, clientName, theme, backdrop, intensity, flavor, grade }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const { W, H } = useCanvas();
   const [failed, setFailed] = useState(false);
 
   const useVideo = Boolean(video && videoInfo);
-  const frameW = DESIGN_WIDTH - 104;
+  // Footage aspect: displayed height per unit width.
+  const aspect = useVideo ? videoInfo!.viewportH / videoInfo!.viewportW : meta.height / meta.width;
 
-  // Inner viewport: recordings are portrait (tall browser, reads like a
-  // reel); stills adapt to the page so short sites don't leave the frame
-  // half-empty.
-  const displayImgH = useVideo
-    ? frameW * (videoInfo!.viewportH / videoInfo!.viewportW)
-    : frameW * (meta.height / meta.width);
-  const maxInnerH = Math.round(DESIGN_HEIGHT * 0.64);
+  // Portrait canvases are width-constrained; square/landscape are
+  // height-constrained (shrink the frame width so the browser fits).
+  let frameW = W - 104;
+  let maxInnerH = Math.round(H * 0.64);
+  if (H <= W) {
+    maxInnerH = H - 320;
+    frameW = Math.min(W - 140, Math.round(maxInnerH / Math.min(aspect, 2)));
+  }
+  const displayImgH = frameW * aspect;
   const innerH = Math.min(maxInnerH, Math.round(displayImgH));
   const frameH = innerH + CHROME_BAR_H;
 

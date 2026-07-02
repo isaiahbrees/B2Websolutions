@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Assets — ReelForge</title>
+  <link rel="stylesheet" href="/assets/theme.css" />
+</head>
+<body>
+  <div class="shell">
+    <main class="main">
+      <div class="page-head">
+        <div><h1>Assets</h1><p class="sub">Logos, music and backgrounds available to every project.</p></div>
+        <label class="btn btn-primary" style="cursor:pointer">+ Upload<input type="file" id="upload" hidden accept="image/*,audio/*" /></label>
+      </div>
+      <div class="seg" id="filters" style="margin-bottom:16px">
+        <button data-f="" class="active">All</button>
+        <button data-f="logo">Logos</button>
+        <button data-f="music">Music</button>
+        <button data-f="background">Backgrounds</button>
+      </div>
+      <div class="grid4" id="grid"></div>
+      <div class="empty" id="empty" hidden>
+        <div class="icon">📁</div>
+        <h3>No assets yet</h3>
+        <p>Upload client logos to use in brand kits, or music tracks to use as reel soundtracks.</p>
+      </div>
+
+      <h2 style="margin:30px 0 12px">Exports</h2>
+      <div class="row-list" id="exports"></div>
+    </main>
+  </div>
+  <script src="/assets/shell.js"></script>
+  <script>
+    Shell.mount('assets');
+    const { api, esc, toast, timeAgo, modal } = Shell;
+    let filter = '';
+
+    async function refresh() {
+      const assets = await api('/api/assets' + (filter ? `?kind=${filter}` : ''));
+      document.getElementById('empty').hidden = assets.length > 0;
+      document.getElementById('grid').innerHTML = assets.map((a) => `
+        <div class="card" style="overflow:hidden">
+          <div style="height:96px;background:var(--bg-sunken);display:flex;align-items:center;justify-content:center">
+            ${a.mime.startsWith('image/') ? `<img src="/api/assets/${a.id}/file" style="max-height:80%;max-width:80%;object-fit:contain">` : `<span style="font-size:26px">${a.kind === 'music' ? '🎵' : '📄'}</span>`}
+          </div>
+          <div style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div style="min-width:0"><div class="small" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.name)}</div>
+            <div class="small faint">${a.kind} · ${(a.size / 1024).toFixed(0)}KB</div></div>
+            <button class="btn btn-sm btn-ghost btn-danger" data-del="${a.id}">✕</button>
+          </div>
+        </div>`).join('');
+      document.querySelectorAll('[data-del]').forEach((b) => (b.onclick = () => modal({
+        title: 'Delete asset?', body: 'Brand kits referencing it will fall back to their accent color.',
+        actions: [{ label: 'Cancel' }, { label: 'Delete', danger: true, onClick: async () => { await api(`/api/assets/${b.dataset.del}`, { method: 'DELETE' }); refresh(); } }],
+      })));
+
+      const projects = (await api('/api/projects')).filter((p) => p.hasVideo);
+      document.getElementById('exports').innerHTML = projects.slice(0, 12).map((p) => `
+        <div class="list-row">
+          <span style="flex:1;font-weight:600">${esc(p.params.projectName)}</span>
+          <span class="small faint">${timeAgo(p.createdAt)}</span>
+          <a class="btn btn-sm" href="/api/projects/${p.id}/video" download>Download</a>
+          <a class="btn btn-sm btn-ghost" href="/app/project/${p.id}">Open</a>
+        </div>`).join('') || '<p class="small faint">Finished renders will appear here.</p>';
+    }
+    document.querySelectorAll('#filters button').forEach((b) => (b.onclick = () => {
+      filter = b.dataset.f;
+      document.querySelectorAll('#filters button').forEach((x) => x.classList.toggle('active', x === b));
+      refresh();
+    }));
+    document.getElementById('upload').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const kind = file.type.startsWith('audio/') ? 'music' : 'logo';
+      const dataUrl = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file); });
+      try {
+        await api('/api/assets', { method: 'POST', body: JSON.stringify({ kind, name: file.name, dataUrl }) });
+        toast('Uploaded');
+        refresh();
+      } catch (err) { toast(err.message, 'err'); }
+    });
+    refresh();
+  </script>
+</body>
+</html>

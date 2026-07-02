@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Projects — ReelForge</title>
+  <link rel="stylesheet" href="/assets/theme.css" />
+</head>
+<body>
+  <div class="shell">
+    <main class="main">
+      <div class="page-head">
+        <div><h1>Projects</h1><p class="sub">Every reel you’ve created, in one place.</p></div>
+        <a class="btn btn-primary" href="/app/new">+ New reel</a>
+      </div>
+      <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+        <div class="seg" id="filters">
+          <button data-f="all" class="active">All</button>
+          <button data-f="busy">Processing</button>
+          <button data-f="done">Completed</button>
+          <button data-f="error">Failed</button>
+          <button data-f="archived">Archived</button>
+        </div>
+        <input class="input" id="search" placeholder="Search projects…" style="max-width:220px" />
+      </div>
+      <div class="row-list" id="list"></div>
+      <div class="empty" id="empty" hidden>
+        <div class="icon">🗂️</div>
+        <h3>Nothing here yet</h3>
+        <p>Projects matching this filter will show up here.</p>
+      </div>
+    </main>
+  </div>
+  <script src="/assets/shell.js"></script>
+  <script>
+    Shell.mount('projects');
+    const { api, esc, timeAgo, toast } = Shell;
+    let all = [];
+    let filter = 'all';
+    const STATUS = { queued: ['Queued','badge-gray'], capturing: ['Capturing','badge-blue'], rendering: ['Rendering','badge-blue'], posting: ['Posting','badge-blue'], done: ['Ready','badge-green'], error: ['Failed','badge-red'] };
+
+    function render() {
+      const q = document.getElementById('search').value.toLowerCase();
+      const rows = all.filter((p) => {
+        if (filter === 'archived') return p.archived;
+        if (p.archived) return false;
+        if (filter === 'busy') return !['done', 'error'].includes(p.status);
+        if (filter === 'done') return p.status === 'done';
+        if (filter === 'error') return p.status === 'error';
+        return true;
+      }).filter((p) => !q || p.params.projectName.toLowerCase().includes(q) || p.params.clientName.toLowerCase().includes(q));
+      document.getElementById('empty').hidden = rows.length > 0;
+      document.getElementById('list').innerHTML = rows.map((p) => {
+        const [label, cls] = STATUS[p.status] || [p.status, 'badge-gray'];
+        return `<div class="list-row">
+          <a href="/app/project/${p.id}" style="width:44px;height:60px;border-radius:6px;overflow:hidden;background:var(--bg-sunken);flex:none">
+            ${p.captures?.after ? `<img src="/api/projects/${p.id}/capture/after" style="width:100%;height:100%;object-fit:cover;object-position:top" loading="lazy">` : ''}
+          </a>
+          <a href="/app/project/${p.id}" style="flex:1;min-width:0">
+            <div style="font-weight:600">${esc(p.params.projectName)} <span class="faint small">· ${esc(p.params.clientName)}</span></div>
+            <div class="small faint">${esc(p.params.templateId)} · ${esc(p.params.format)} · ${timeAgo(p.createdAt)}</div>
+          </a>
+          <span class="badge ${cls}"><span class="dot"></span>${label}</span>
+          ${p.hasVideo ? `<a class="btn btn-sm" href="/api/projects/${p.id}/video" download>↓</a>` : ''}
+          <button class="btn btn-sm btn-ghost" data-dup="${p.id}" title="Duplicate">⧉</button>
+        </div>`;
+      }).join('');
+      document.querySelectorAll('[data-dup]').forEach((b) => (b.onclick = async () => {
+        try { const p = await api(`/api/projects/${b.dataset.dup}/duplicate`, { method: 'POST' }); location.href = `/app/project/${p.id}`; }
+        catch (err) { err.upgradeTo ? Shell.upgradeModal(err.message, err.upgradeTo) : toast(err.message, 'err'); }
+      }));
+    }
+    document.querySelectorAll('#filters button').forEach((b) => (b.onclick = () => {
+      filter = b.dataset.f;
+      document.querySelectorAll('#filters button').forEach((x) => x.classList.toggle('active', x === b));
+      render();
+    }));
+    document.getElementById('search').addEventListener('input', render);
+    async function refresh() { all = await api('/api/projects'); render(); }
+    refresh();
+    setInterval(refresh, 4000);
+  </script>
+</body>
+</html>
