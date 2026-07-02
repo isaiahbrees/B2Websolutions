@@ -11,12 +11,12 @@ export type CameraPath = {
 const KIND_ZOOM: Record<Section['kind'], number> = {
   hero: 1.10,
   heading: 1.07,
-  cards: 1.12,
-  testimonial: 1.13,
-  pricing: 1.10,
-  stats: 1.10,
-  gallery: 1.10,
-  cta: 1.15,
+  cards: 1.16,
+  testimonial: 1.14,
+  pricing: 1.11,
+  stats: 1.11,
+  gallery: 1.12,
+  cta: 1.16,
 };
 
 const INTENSITY: Record<'subtle' | 'balanced' | 'cinematic', number> = {

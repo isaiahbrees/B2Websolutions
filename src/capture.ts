@@ -94,6 +94,40 @@ const FONTS_SCRIPT = `Promise.race([
   new Promise((r) => setTimeout(r, 4000)),
 ]).then(() => true)`;
 
+// SPA-style sites often scroll inside an inner container while the body
+// stays one viewport tall — full-page screenshots then capture a single
+// screen and the reel "doesn't scroll". Detect the real scroller and expand
+// it into the document flow so the whole page is capturable.
+const EXPAND_SCROLLER_SCRIPT = `(() => {
+  const doc = document.scrollingElement || document.documentElement;
+  const vh = innerHeight;
+  if (doc.scrollHeight > vh * 1.3) return 'body scrolls (' + doc.scrollHeight + 'px)';
+  let best = null;
+  const els = document.querySelectorAll('div, main, section');
+  const cap = Math.min(els.length, 4000);
+  for (let i = 0; i < cap; i++) {
+    const el = els[i];
+    if (el.scrollHeight > el.clientHeight + 200 && el.clientHeight > vh * 0.4) {
+      const o = getComputedStyle(el).overflowY;
+      if (o === 'auto' || o === 'scroll' || o === 'overlay' || o === 'hidden') {
+        if (!best || el.scrollHeight > best.scrollHeight) best = el;
+      }
+    }
+  }
+  if (!best) return 'no inner scroller found (' + doc.scrollHeight + 'px)';
+  const fix = (el) => {
+    el.style.setProperty('height', 'auto', 'important');
+    el.style.setProperty('max-height', 'none', 'important');
+    el.style.setProperty('overflow', 'visible', 'important');
+  };
+  fix(best);
+  let p = best.parentElement;
+  while (p) { fix(p); p = p.parentElement; }
+  document.documentElement.style.setProperty('height', 'auto', 'important');
+  document.body.style.setProperty('height', 'auto', 'important');
+  return 'expanded inner scroller to ' + (document.scrollingElement || document.documentElement).scrollHeight + 'px';
+})()`;
+
 const SECTIONS_SCRIPT = `(() => {
   const out = [];
   const taken = [];
@@ -114,7 +148,7 @@ const SECTIONS_SCRIPT = `(() => {
   q('[class*="pricing" i], [class*="plans" i]').slice(0, 1).forEach((el) => add(el, 'pricing'));
   q('[class*="stat" i], [class*="metric" i], [class*="number" i]').slice(0, 1).forEach((el) => add(el, 'stats'));
   q('[class*="gallery" i], [class*="portfolio" i], [class*="work" i]').slice(0, 1).forEach((el) => add(el, 'gallery'));
-  q('[class*="card" i], [class*="grid" i], [class*="feature" i], [class*="service" i]').slice(0, 2).forEach((el) => add(el, 'cards'));
+  q('[class*="bento" i], [class*="card" i], [class*="grid" i], [class*="feature" i], [class*="service" i]').slice(0, 2).forEach((el) => add(el, 'cards'));
   q('form, [class*="contact" i], [class*="cta" i], [class*="book" i]').slice(0, 2).forEach((el) => add(el, 'cta'));
   q('h2').slice(0, 5).forEach((el) => add(el, 'heading'));
   out.sort((a, b) => a.y - b.y);
@@ -187,9 +221,16 @@ async function attemptCapture(
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH || undefined,
     proxy: process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY } : undefined,
-    // Containers cap /dev/shm at 64MB; heavy pages crash Chromium's renderer
-    // ("page.goto: Page crashed") unless it uses regular memory instead.
-    args: ['--disable-dev-shm-usage', '--disable-gpu'],
+    // --disable-dev-shm-usage: containers cap /dev/shm at 64MB; heavy pages
+    // crash the renderer without it. --disable-gpu alone kills WebGL (blank
+    // three.js canvases in captures) — the SwiftShader flags restore
+    // software-rendered WebGL (verified in headless testing).
+    args: [
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--use-angle=swiftshader',
+      '--enable-unsafe-swiftshader',
+    ],
   });
 
   try {
@@ -267,6 +308,13 @@ async function captureWork(
   await step('settle network', 9_000, () => page.waitForLoadState('networkidle', { timeout: 8_000 }), undefined);
   await step('cookie banners', 10_000, () => dismissCookieBanners(page), undefined);
   await step('web fonts', 6_000, () => page.evaluate(FONTS_SCRIPT), undefined);
+  const scrollerInfo = await step(
+    'find real scroller',
+    10_000,
+    async () => String(await page.evaluate(EXPAND_SCROLLER_SCRIPT)),
+    'skipped',
+  );
+  log(`  ${scrollerInfo}`);
 
   // Scroll through the page so lazy-loaded content and scroll-triggered
   // animations fire, then return to the top. Iteration-capped so infinite
@@ -278,12 +326,13 @@ async function captureWork(
       page.evaluate(
         `(async () => {
           const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+          const pageH = () => (document.scrollingElement || document.body).scrollHeight;
           let y = 0;
           for (let i = 0; i < 14 && y < ${opts.maxHeight}; i++) {
             y += 650;
-            window.scrollTo(0, Math.min(y, document.body.scrollHeight));
+            window.scrollTo(0, Math.min(y, pageH()));
             await delay(130);
-            if (y >= document.body.scrollHeight) break;
+            if (y >= pageH()) break;
           }
           window.scrollTo(0, 0);
           await delay(400);
@@ -308,7 +357,8 @@ async function captureWork(
   const pageHeight = await step(
     'measure page height',
     8_000,
-    async () => Number(await page.evaluate('document.body.scrollHeight')),
+    async () =>
+      Number(await page.evaluate('(document.scrollingElement || document.body).scrollHeight')),
     opts.maxHeight + 1,
   );
   const cssHeightGuess = Math.min(Math.max(pageHeight, 900), opts.maxHeight);
