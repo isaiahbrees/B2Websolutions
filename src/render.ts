@@ -75,13 +75,15 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
   // Live scroll recordings take priority: the segment plays the whole video.
   const beforeVideo = readVideoInfo(opts.beforeDir);
   const afterVideo = readVideoInfo(opts.afterDir);
+  // Leave headroom at the tail: the Before segment plays flash-overlap frames
+  // past its nominal end, and the segment must never outrun the footage.
   if (beforeVideo) {
     fs.copyFileSync(path.join(opts.beforeDir, 'scroll.webm'), path.join(jobDir, 'before.webm'));
-    beforeSeconds = Math.min(Math.max(beforeVideo.durationSec, 4), 55);
+    beforeSeconds = Math.min(Math.max(beforeVideo.durationSec - 0.6, 4), 55);
   }
   if (afterVideo) {
     fs.copyFileSync(path.join(opts.afterDir, 'scroll.webm'), path.join(jobDir, 'after.webm'));
-    afterSeconds = Math.min(Math.max(afterVideo.durationSec, 4), 58);
+    afterSeconds = Math.min(Math.max(afterVideo.durationSec - 0.2, 4), 58);
   }
   log(
     `footage: before=${beforeVideo ? 'live video' : 'still capture'}, after=${afterVideo ? 'live video' : 'still capture'}`,
@@ -120,6 +122,9 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     afterSeconds,
   };
 
+  if (opts.durationTarget && (beforeVideo || afterVideo)) {
+    log('duration target ignored — live recordings play at their recorded length');
+  }
   // Fit an exact duration target by scaling the two site segments (still
   // footage only — videos play at their recorded length).
   if (opts.durationTarget && !beforeVideo && !afterVideo) {

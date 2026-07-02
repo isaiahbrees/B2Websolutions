@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Page } from 'playwright';
-import type { CaptureMeta, PageSection } from './types';
+import type { CaptureMeta, PageSection, ScrollVideoInfo } from './types';
 import { ensureDir, log, writeJson } from './util';
 
 export type CaptureOptions = {
@@ -709,6 +709,11 @@ export async function recordScrollVideo(
   const opts = { ...DEFAULTS, ...options };
   const pxPerSec = SPEED_PX_PER_SEC[scrollSpeed];
   ensureDir(outDir);
+  // Never let a failed re-record leave a stale recording behind — the
+  // renderer would pair it with fresh sections/meta from a different run.
+  for (const stale of ['video.json', 'scroll.webm']) {
+    fs.rmSync(path.join(outDir, stale), { force: true });
+  }
 
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH || undefined,
@@ -751,7 +756,6 @@ async function recordWork(
   pxPerSec: number,
   browser: Awaited<ReturnType<typeof chromium.launch>>,
 ): Promise<ScrollVideoInfo | null> {
-  const t0 = Date.now();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 1,
@@ -762,6 +766,9 @@ async function recordWork(
   });
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
+  // The recording starts when the page exists — measure prep from here so
+  // startFrom trims exactly the setup, not imaginary context-creation time.
+  const t0 = Date.now();
 
   try {
     log(`recording ${url} (${pxPerSec}px/s scroll)`);
@@ -788,6 +795,10 @@ async function recordWork(
     const target = Math.min(maxScroll, opts.maxHeight - 900, pxPerSec * 26);
     const scrollDur = target / pxPerSec;
     const holdSec = 0.8;
+    // Short pages scroll in a couple of seconds; pad the end hold so the
+    // recording always outlasts the reel segment that plays it (min segment
+    // 4s + the flash overlap).
+    const endHoldSec = holdSec + Math.max(0, 5.5 - (holdSec * 2 + scrollDur));
     const prepSec = (Date.now() - t0) / 1000;
 
     await page.evaluate(
@@ -804,7 +815,7 @@ async function recordWork(
           };
           requestAnimationFrame(step);
         });
-        await hold(${holdSec * 1000});
+        await hold(${Math.round(endHoldSec * 1000)});
       })()`,
     );
 
@@ -822,13 +833,15 @@ async function recordWork(
       pxPerSec,
       maxScroll: target,
       viewportH: 900,
-      durationSec: holdSec * 2 + scrollDur,
+      durationSec: holdSec + scrollDur + endHoldSec,
     };
     writeJson(path.join(outDir, 'video.json'), info);
     log(`  recorded ${info.durationSec.toFixed(1)}s of scroll (${target}px) after ${prepSec.toFixed(1)}s prep`);
     return info;
   } catch (err) {
     await context.close().catch(() => {});
+    // Don't leave the raw random-named webm behind on failure.
+    await page.video()?.delete().catch(() => {});
     throw err;
   }
 }
