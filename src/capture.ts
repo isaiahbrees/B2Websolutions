@@ -17,7 +17,9 @@ export type CaptureOptions = {
 const DEFAULTS: Required<CaptureOptions> = {
   width: 1440,
   maxHeight: 6500,
-  deviceScaleFactor: 2,
+  // 1.5x = 2160px-wide capture: sharp on a 1080 reel without the tab-memory
+  // cost of full retina on image-heavy pages.
+  deviceScaleFactor: 1.5,
   timeoutMs: 45_000,
 };
 
@@ -127,13 +129,35 @@ async function dismissCookieBanners(page: Page): Promise<void> {
  * Load a URL in headless Chromium, settle the page (fonts, lazy images,
  * scroll-reveal animations, cookie banners), save a sharp full-page
  * screenshot, and detect page sections so the renderer can plan camera moves.
+ *
+ * Very heavy pages can crash the browser tab in a memory-capped container;
+ * when that happens we retry once in a lighter profile instead of failing.
  */
 export async function captureSite(
   url: string,
   outDir: string,
   options: CaptureOptions = {},
 ): Promise<CaptureMeta> {
-  const opts = { ...DEFAULTS, ...options };
+  try {
+    return await attemptCapture(url, outDir, { ...DEFAULTS, ...options });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/crashed|Target closed|Page closed|browser has disconnected/i.test(msg)) throw err;
+    log(`capture crashed on ${url} — retrying in lite mode (1x density, shorter page)`);
+    return attemptCapture(url, outDir, {
+      ...DEFAULTS,
+      ...options,
+      deviceScaleFactor: 1,
+      maxHeight: 4500,
+    });
+  }
+}
+
+async function attemptCapture(
+  url: string,
+  outDir: string,
+  opts: Required<CaptureOptions>,
+): Promise<CaptureMeta> {
   ensureDir(outDir);
 
   const browser = await chromium.launch({
@@ -152,6 +176,17 @@ export async function captureSite(
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     });
+    // Background/autoplay videos eat hundreds of MB of tab memory and never
+    // appear in a still capture — drop them at the network layer.
+    await context.route(
+      '**/*',
+      (route) =>
+        ['media'].includes(route.request().resourceType()) ||
+        /\.(mp4|webm|m3u8|ts)(\?|$)/i.test(route.request().url())
+          ? route.abort()
+          : route.continue(),
+    );
+
     const page = await context.newPage();
 
     log(`loading ${url}`);
