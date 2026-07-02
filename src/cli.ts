@@ -2,28 +2,13 @@ import 'dotenv/config';
 import path from 'node:path';
 import { Command } from 'commander';
 import { captureSite } from './capture';
-import { fbCredsFromEnv, postFeedVideo, postReel } from './post/facebook';
-import { postViaMake } from './post/make';
+import { defaultCaption, postVideo, type PostVia } from './post/index';
 import { renderReel } from './render';
 import { ensureDir, log, slugify } from './util';
 
 const program = new Command()
   .name('reelworks')
   .description('URL in → before/after reel out → posted to Facebook');
-
-type PostVia = 'facebook' | 'reel' | 'make';
-
-async function postVideo(via: PostVia, videoPath: string, caption: string, client: string) {
-  if (via === 'make') {
-    const url = process.env.MAKE_WEBHOOK_URL;
-    if (!url) throw new Error('Set MAKE_WEBHOOK_URL in .env to post via Make.');
-    await postViaMake(url, videoPath, caption, client);
-  } else if (via === 'reel') {
-    await postReel(fbCredsFromEnv(), videoPath, caption);
-  } else {
-    await postFeedVideo(fbCredsFromEnv(), videoPath, caption);
-  }
-}
 
 program
   .command('capture')
@@ -118,8 +103,7 @@ program
 
     if (o.post) {
       const caption =
-        o.caption ??
-        `${o.headline ?? 'This website was costing them customers.'}\n\nBefore ➜ After for ${o.client}.\n${o.cta ?? 'Want a site that converts? DM us "WEBSITE"'}`;
+        o.caption ?? defaultCaption({ headline: o.headline, clientName: o.client, cta: o.cta });
       await postVideo(o.post as PostVia, outPath, caption, o.client);
     } else {
       log(`done — reel at ${outPath} (re-run with --post reel to publish)`);

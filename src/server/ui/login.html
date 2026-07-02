@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ReelWorks — Sign in</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <main class="login-wrap">
+    <form id="login-form" class="card login-card">
+      <h1 class="logo">Reel<span>Works</span></h1>
+      <p class="muted">Before/after website reels, on autopilot.</p>
+      <label>Email
+        <input type="email" name="email" required autocomplete="username" />
+      </label>
+      <label>Password
+        <input type="password" name="password" required autocomplete="current-password" />
+      </label>
+      <button type="submit" class="btn btn-primary">Sign in</button>
+      <p id="login-error" class="error" hidden></p>
+    </form>
+  </main>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const errEl = document.getElementById('login-error');
+      errEl.hidden = true;
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: form.email.value,
+          password: form.password.value,
+        }),
+      });
+      if (res.ok) {
+        location.href = '/';
+      } else {
+        const body = await res.json().catch(() => ({}));
+        errEl.textContent = body.error || 'Login failed';
+        errEl.hidden = false;
+      }
+    });
+  </script>
+</body>
+</html>

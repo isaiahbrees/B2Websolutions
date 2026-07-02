@@ -39,7 +39,24 @@ copy .env.example .env   # then fill in the values you need (macOS/Linux: cp)
 
 The first render downloads Remotion's headless browser automatically.
 
-## Usage
+## The web app
+
+```
+npm run web
+```
+
+Open http://localhost:3000, sign in with the `ADMIN_EMAIL` / `ADMIN_PASSWORD`
+you set in `.env`, paste the two URLs, and hit **Create reel**. The dashboard
+shows live progress (capturing → rendering → posting), previews the finished
+video, and has one-click posting to Facebook (Reel or feed video) or Make.com.
+Jobs land in `out/jobs/` and survive restarts.
+
+It's a single-login app for your agency. To let teammates in, share the login
+or put the app behind something like Cloudflare Access — proper multi-user
+accounts are on the roadmap. If you expose it to the internet, run it behind
+HTTPS (Caddy, nginx, Cloudflare Tunnel) and set a strong `SESSION_SECRET`.
+
+## CLI usage
 
 Full pipeline (capture + render, no posting):
 
@@ -103,8 +120,12 @@ scenario) or a scheduler like Buffer/Publer, which already have approved apps.
 src/cli.ts                  CLI (capture / render / post / run)
 src/capture.ts              Playwright full-page capture
 src/render.ts               Remotion bundling + rendering
-src/post/facebook.ts        Graph API: feed video + Reels upload
-src/post/make.ts            Make.com webhook hand-off
+src/post/                   Graph API (feed video + Reels) and Make.com hand-off
+src/server/                 Web app: Express API, login, job queue
+  index.ts                  Routes (login, jobs, video streaming)
+  auth.ts                   Signed-cookie sessions from ADMIN_* env vars
+  jobs.ts                   Persistent job store + sequential render queue
+  ui/                       Dashboard (vanilla HTML/CSS/JS, no build step)
 src/remotion/               The video template (edit me!)
   BeforeAfterReel.tsx       Timeline: hook → before → swipe → after → end card
   components/SitePan.tsx    Scroll-through with zoom inside a browser frame
@@ -114,6 +135,7 @@ public/                     Static assets (job captures are copied here)
 
 ## Roadmap / ideas
 
+- **Multi-user accounts** (per-teammate logins, a real database).
 - **Screen-recording drop-in**: accept an .mp4, normalize it (trim, pad,
   speed-ramp) and slot it into the same template — for sites where a live
   scroll-through with animations beats a screenshot pan.

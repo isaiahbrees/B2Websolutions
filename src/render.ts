@@ -19,6 +19,8 @@ export type RenderOptions = {
   afterSeconds?: number;
   /** Render at reduced resolution for fast previews, e.g. 0.5 */
   scale?: number;
+  /** Called with 0..1 as frames render. Defaults to logging to stdout. */
+  onProgress?: (progress: number) => void;
 };
 
 /**
@@ -84,12 +86,14 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     browserExecutable: process.env.REMOTION_CHROME || undefined,
     chromiumOptions: { ignoreCertificateErrors: true },
     onProgress: ({ progress }) => {
-      if (Math.round(progress * 100) % 10 === 0) {
+      if (opts.onProgress) {
+        opts.onProgress(progress);
+      } else {
         process.stdout.write(`\r[reelworks] render ${Math.round(progress * 100)}%   `);
       }
     },
   });
-  process.stdout.write('\n');
+  if (!opts.onProgress) process.stdout.write('\n');
   log(`rendered ${opts.outPath}`);
   return opts.outPath;
 }
