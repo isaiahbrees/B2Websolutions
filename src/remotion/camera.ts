@@ -1,4 +1,4 @@
-import type { Section } from './schema';
+import type { Section, VideoInfo } from './schema';
 
 export type CameraPath = {
   frames: number[];
@@ -106,4 +106,56 @@ export function buildCameraPath(opts: {
   push(d * 0.985, maxC, 1);
   push(d, maxC, 1);
   return { frames, ys, scales };
+}
+
+/**
+ * Zoom plan for live scroll videos. The recording scrolls at constant
+ * velocity, so a section's page position maps directly to a video timestamp:
+ * push in as it scrolls into view, hold, pull back out.
+ */
+export function buildVideoZoom(opts: {
+  sections: Section[];
+  info: VideoInfo;
+  fps: number;
+  durationInFrames: number;
+  intensity: 'subtle' | 'balanced' | 'cinematic';
+  flavor: 'minimal' | 'showcase';
+}): { frames: number[]; scales: number[] } {
+  const { sections, info, fps, durationInFrames: d, intensity, flavor } = opts;
+  const boost = INTENSITY[intensity] * (flavor === 'minimal' ? 0.5 : 1);
+  const scrollDur = info.maxScroll / info.pxPerSec;
+
+  const frames: number[] = [];
+  const scales: number[] = [];
+  const push = (f: number, s: number) => {
+    const fi = Math.round(Math.min(Math.max(f, 0), d));
+    if (frames.length && fi <= frames[frames.length - 1]) return;
+    frames.push(fi);
+    scales.push(s);
+  };
+
+  push(0, 1);
+  let lastEnd = 0;
+  const eligible = sections
+    .map((s) => ({
+      zoom: Math.min(1 + (KIND_ZOOM[s.kind] - 1) * boost, 1.24),
+      // moment the section center reaches ~45% of the viewport
+      tSec: info.holdSec + Math.min(Math.max((s.y + s.h / 2 - info.viewportH * 0.45) / info.pxPerSec, 0), scrollDur),
+    }))
+    .sort((a, b) => a.tSec - b.tSec)
+    .slice(0, flavor === 'minimal' ? 2 : 4);
+
+  for (const s of eligible) {
+    const fIn = (s.tSec - 0.55) * fps;
+    const fHold = (s.tSec + 0.75) * fps;
+    const fOut = (s.tSec + 1.5) * fps;
+    if (fIn <= lastEnd + fps * 0.8 || fOut >= d - fps * 0.5) continue;
+    push(fIn, 1);
+    push(s.tSec * fps, s.zoom);
+    push(fHold, s.zoom);
+    push(fOut, 1);
+    lastEnd = fOut;
+  }
+  push(d, 1);
+  return { frames, scales };
 }

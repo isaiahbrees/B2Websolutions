@@ -6,6 +6,19 @@ export type PageSection = {
   kind: 'hero' | 'heading' | 'cards' | 'testimonial' | 'pricing' | 'stats' | 'gallery' | 'cta';
 };
 
+export type ScrollVideoInfo = {
+  file: string;
+  /** seconds of page setup at the start of the recording to trim off */
+  prepSec: number;
+  /** hold at top before/after the scroll */
+  holdSec: number;
+  pxPerSec: number;
+  maxScroll: number;
+  viewportH: number;
+  /** useful duration: hold + scroll + hold (after trimming prepSec) */
+  durationSec: number;
+};
+
 export type CaptureMeta = {
   url: string;
   title: string;

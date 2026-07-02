@@ -9,6 +9,18 @@ export const sectionSchema = z.object({
   kind: z.enum(['hero', 'heading', 'cards', 'testimonial', 'pricing', 'stats', 'gallery', 'cta']),
 });
 
+export const videoInfoSchema = z.object({
+  /** seconds of page-setup at the head of the recording to trim */
+  prepSec: z.number(),
+  holdSec: z.number(),
+  pxPerSec: z.number(),
+  maxScroll: z.number(),
+  viewportH: z.number(),
+  durationSec: z.number(),
+});
+
+export type VideoInfo = z.infer<typeof videoInfoSchema>;
+
 export const siteMeta = z.object({
   /** Actual image pixel dimensions (source of truth for camera math) */
   width: z.number(),
@@ -37,10 +49,15 @@ export const reelSchema = z.object({
   fps: z.union([z.literal(30), z.literal(60)]),
   beforeImage: z.string().describe('staticFile()-relative path or http URL'),
   afterImage: z.string(),
+  /** Live scroll recordings — preferred over stills when present. */
+  beforeVideo: z.string().nullable(),
+  afterVideo: z.string().nullable(),
+  beforeVideoInfo: videoInfoSchema.nullable(),
+  afterVideoInfo: videoInfoSchema.nullable(),
   beforeMeta: siteMeta,
   afterMeta: siteMeta,
-  beforeSeconds: z.number().min(3).max(40),
-  afterSeconds: z.number().min(3).max(40),
+  beforeSeconds: z.number().min(3).max(60),
+  afterSeconds: z.number().min(3).max(60),
   musicSrc: z.string().nullable(),
 });
 
@@ -65,6 +82,10 @@ export const defaultReelProps: ReelProps = {
   fps: 30,
   beforeImage: 'job/before.jpg',
   afterImage: 'job/after.jpg',
+  beforeVideo: null,
+  afterVideo: null,
+  beforeVideoInfo: null,
+  afterVideoInfo: null,
   beforeMeta: { width: 2880, height: 8400, cssWidth: 1440, url: 'old-site.com', sections: [] },
   afterMeta: { width: 2880, height: 10400, cssWidth: 1440, url: 'acmeplumbing.com', sections: [] },
   beforeSeconds: 8,

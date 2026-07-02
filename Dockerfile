@@ -10,8 +10,9 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
-# Chromium for site capture (+ the system libraries it needs)...
-RUN npx playwright install --with-deps chromium
+# Chromium for site capture (+ the system libraries it needs) and Playwright's
+# ffmpeg, which converts live scroll recordings to webm...
+RUN npx playwright install --with-deps chromium ffmpeg
 # ...and Remotion's headless shell for rendering, baked in at build time
 # so the first render doesn't stall on a download.
 RUN npx remotion browser ensure

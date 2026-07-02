@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { captureSite } from '../capture';
+import { captureSite, recordScrollVideo } from '../capture';
 import { defaultCaption, postVideo, type PostVia } from '../post/index';
 import { renderReel, type ScrollSpeed } from '../render';
 import type { ReelProps } from '../remotion/schema';
@@ -130,9 +130,16 @@ async function runJob(job: Job): Promise<void> {
     });
     update(job, { status: 'capturing', stage: 'Loading the before site' });
     const beforeMeta = await captureSite(job.params.beforeUrl, path.join(dir, 'before'));
-    update(job, { captures: { before: summarize(beforeMeta) }, stage: 'Loading the after site' });
+    update(job, { captures: { before: summarize(beforeMeta) }, stage: 'Recording the before site in motion' });
+    await recordScrollVideo(job.params.beforeUrl, path.join(dir, 'before'), job.params.scrollSpeed);
+
+    update(job, { stage: 'Loading the after site' });
     const afterMeta = await captureSite(job.params.afterUrl, path.join(dir, 'after'));
-    update(job, { captures: { before: summarize(beforeMeta), after: summarize(afterMeta) } });
+    update(job, {
+      captures: { before: summarize(beforeMeta), after: summarize(afterMeta) },
+      stage: 'Recording the after site in motion',
+    });
+    await recordScrollVideo(job.params.afterUrl, path.join(dir, 'after'), job.params.scrollSpeed);
 
     update(job, { status: 'rendering', stage: 'Planning camera moves', progress: 0 });
     const videoFile = path.join(dir, 'reel.mp4');

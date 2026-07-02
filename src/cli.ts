@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 import { Command } from 'commander';
-import { captureSite } from './capture';
+import { captureSite, recordScrollVideo } from './capture';
 import { defaultCaption, postVideo, type PostVia } from './post/index';
 import { renderReel } from './render';
 import { ensureDir, log, slugify } from './util';
@@ -100,8 +100,11 @@ program
     const beforeDir = path.join(jobDir, 'before');
     const afterDir = path.join(jobDir, 'after');
 
+    const speed = (o.speed as 'slow' | 'medium' | 'fast' | undefined) ?? 'medium';
     await captureSite(o.before, beforeDir);
+    await recordScrollVideo(o.before, beforeDir, speed);
     await captureSite(o.after, afterDir);
+    await recordScrollVideo(o.after, afterDir, speed);
 
     const outPath = path.join(jobDir, 'reel.mp4');
     await renderReel({

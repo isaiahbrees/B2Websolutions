@@ -96,6 +96,8 @@ export const BeforeAfterReel: React.FC<ReelProps> = (props) => {
         <Sequence from={seg.beforeStart} durationInFrames={seg.before + seg.flash} name="Before">
           <CameraPan
             image={props.beforeImage}
+            video={props.beforeVideo}
+            videoInfo={props.beforeVideoInfo}
             meta={props.beforeMeta}
             durationInFrames={seg.before}
             label={props.beforeLabel}
@@ -127,6 +129,8 @@ export const BeforeAfterReel: React.FC<ReelProps> = (props) => {
           <div style={{ position: 'absolute', inset: 0, transform: `scale(${afterSettle})` }}>
             <CameraPan
               image={props.afterImage}
+              video={props.afterVideo}
+              videoInfo={props.afterVideoInfo}
               meta={props.afterMeta}
               durationInFrames={seg.after}
               label={props.afterLabel}

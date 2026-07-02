@@ -102,21 +102,22 @@ const PRESERVE_WEBGL_INIT = `(() => {
 // canvases (cross-origin textures) throw on readback; leave those live,
 // the preserved buffer still displays in screenshots.
 const CANVAS_FREEZE_SCRIPT = `(() => {
-  let n = 0;
+  let frozen = 0, tainted = 0, blank = 0, total = 0;
   for (const c of Array.from(document.querySelectorAll('canvas'))) {
     if (c.clientWidth < 50 || c.clientHeight < 50) continue;
+    total++;
     try {
       const url = c.toDataURL('image/png');
-      if (url.length < 2000) continue;
+      if (url.length < 2000) { blank++; continue; }
       const img = new Image();
       img.src = url;
       img.style.cssText = 'width:' + c.clientWidth + 'px;height:' + c.clientHeight + 'px;display:block;';
       img.className = c.className;
       c.replaceWith(img);
-      n++;
-    } catch (e) { /* tainted canvas — leave it live */ }
+      frozen++;
+    } catch (e) { tainted++; }
   }
-  return n + ' canvas(es) frozen';
+  return total + ' canvas(es): ' + frozen + ' frozen, ' + tainted + ' tainted, ' + blank + ' blank';
 })()`;
 
 // img.decode() on an image that never finishes loading stays pending FOREVER
@@ -615,16 +616,17 @@ async function captureWork(
   const title = await step('read title', 5_000, () => page.title(), '');
 
   const imageFile = path.join(outDir, 'site.jpg');
+  // Always clip, never fullPage: fullPage may resize the viewport internally,
+  // which clears WebGL canvases before they can redraw. A clip larger than
+  // the viewport captures beyond it without any resize (verified via CDP).
   const shoot = (height: number, timeout: number) =>
-    pageHeight <= opts.maxHeight && height >= cssHeightGuess
-      ? page.screenshot({ path: imageFile, type: 'jpeg', quality: 90, fullPage: true, timeout })
-      : page.screenshot({
-          path: imageFile,
-          type: 'jpeg',
-          quality: 90,
-          clip: { x: 0, y: 0, width: opts.width, height },
-          timeout,
-        });
+    page.screenshot({
+      path: imageFile,
+      type: 'jpeg',
+      quality: 90,
+      clip: { x: 0, y: 0, width: opts.width, height },
+      timeout,
+    });
   try {
     await shoot(cssHeightGuess, 60_000);
   } catch (err) {
@@ -678,4 +680,155 @@ async function captureWork(
     `captured ${url} -> ${dims.width}x${dims.height}px in ${((Date.now() - t0) / 1000).toFixed(1)}s, ${meta.sections.length} section(s)`,
   );
   return meta;
+}
+
+// --- live scroll video ------------------------------------------------------
+// Records the compositor's actual output while a scripted smooth scroll runs.
+// This captures EVERYTHING a human sees — WebGL scenes, scroll animations,
+// videos, canvas-in-worker rendering — with zero readback tricks, because it
+// never asks the page for pixels; the browser's own frame stream is recorded.
+
+const SPEED_PX_PER_SEC: Record<'slow' | 'medium' | 'fast', number> = {
+  slow: 300,
+  medium: 430,
+  fast: 620,
+};
+
+/**
+ * Record a webm of the page smoothly scrolling top to bottom at constant
+ * velocity. Returns timing info the renderer needs to trim the setup phase
+ * and map page positions to video timestamps. Returns null on failure —
+ * callers fall back to the still capture.
+ */
+export async function recordScrollVideo(
+  url: string,
+  outDir: string,
+  scrollSpeed: 'slow' | 'medium' | 'fast' = 'medium',
+  options: CaptureOptions = {},
+): Promise<ScrollVideoInfo | null> {
+  const opts = { ...DEFAULTS, ...options };
+  const pxPerSec = SPEED_PX_PER_SEC[scrollSpeed];
+  ensureDir(outDir);
+
+  const browser = await chromium.launch({
+    executablePath: process.env.CHROMIUM_PATH || undefined,
+    proxy: process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY } : undefined,
+    args: [
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--use-angle=swiftshader',
+      '--enable-unsafe-swiftshader',
+    ],
+  });
+
+  try {
+    const work = recordWork(url, outDir, opts, pxPerSec, browser);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const watchdog = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`video watchdog: recording ${url} exceeded 160s`)),
+        160_000,
+      );
+    });
+    try {
+      return await Promise.race([work, watchdog]);
+    } finally {
+      clearTimeout(timer);
+      work.catch(() => {});
+    }
+  } catch (err) {
+    log(`scroll video failed for ${url} (${err instanceof Error ? err.message.split('\n')[0].slice(0, 90) : err}) — reel falls back to stills`);
+    return null;
+  } finally {
+    await browser.close();
+  }
+}
+
+async function recordWork(
+  url: string,
+  outDir: string,
+  opts: Required<CaptureOptions>,
+  pxPerSec: number,
+  browser: Awaited<ReturnType<typeof chromium.launch>>,
+): Promise<ScrollVideoInfo | null> {
+  const t0 = Date.now();
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    ignoreHTTPSErrors: true,
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    recordVideo: { dir: outDir, size: { width: 1440, height: 900 } },
+  });
+  const page = await context.newPage();
+  page.setDefaultTimeout(15_000);
+
+  try {
+    log(`recording ${url} (${pxPerSec}px/s scroll)`);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs });
+    await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
+    await dismissCookieBanners(page);
+    await dismissOverlays(page);
+    await page.evaluate(FONTS_SCRIPT).catch(() => {});
+    await page.evaluate(FORCE_LAZY_SCRIPT).catch(() => {});
+
+    // Warm the page (lazy content, scroll-reveal animations) with a quick
+    // pass, then return to the top. This is part of the trimmed prep phase.
+    const maxScroll = Number(await page.evaluate(SCROLL_PROBE_SCRIPT));
+    if (!Number.isFinite(maxScroll) || maxScroll < 200) {
+      log(`  page barely scrolls (${maxScroll}px) — skipping video`);
+      await context.close();
+      const v = page.video();
+      if (v) await v.delete().catch(() => {});
+      return null;
+    }
+    await page.evaluate(`document.head.appendChild(Object.assign(document.createElement('style'), { textContent: '::-webkit-scrollbar{display:none!important} html{scrollbar-width:none!important}' })), true`);
+    await page.waitForTimeout(300);
+
+    const target = Math.min(maxScroll, opts.maxHeight - 900, pxPerSec * 26);
+    const scrollDur = target / pxPerSec;
+    const holdSec = 0.8;
+    const prepSec = (Date.now() - t0) / 1000;
+
+    await page.evaluate(
+      `(async () => {
+        const hold = (ms) => new Promise((r) => setTimeout(r, ms));
+        window.scrollTo(0, 0);
+        await hold(${holdSec * 1000});
+        await new Promise((done) => {
+          const t0 = performance.now();
+          const step = (t) => {
+            const y = Math.min(((t - t0) / 1000) * ${pxPerSec}, ${target});
+            window.scrollTo(0, y);
+            if (y >= ${target}) done(); else requestAnimationFrame(step);
+          };
+          requestAnimationFrame(step);
+        });
+        await hold(${holdSec * 1000});
+      })()`,
+    );
+
+    const video = page.video();
+    await context.close(); // finalizes the recording
+    if (!video) return null;
+    const file = path.join(outDir, 'scroll.webm');
+    await video.saveAs(file);
+    await video.delete().catch(() => {});
+
+    const info: ScrollVideoInfo = {
+      file,
+      prepSec,
+      holdSec,
+      pxPerSec,
+      maxScroll: target,
+      viewportH: 900,
+      durationSec: holdSec * 2 + scrollDur,
+    };
+    writeJson(path.join(outDir, 'video.json'), info);
+    log(`  recorded ${info.durationSec.toFixed(1)}s of scroll (${target}px) after ${prepSec.toFixed(1)}s prep`);
+    return info;
+  } catch (err) {
+    await context.close().catch(() => {});
+    throw err;
+  }
 }

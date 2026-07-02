@@ -3,7 +3,7 @@ import path from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
 import { defaultReelProps, getSegments, type ReelProps } from './remotion/schema';
-import type { CaptureMeta } from './types';
+import type { CaptureMeta, ScrollVideoInfo } from './types';
 import { ensureDir, log, readJson } from './util';
 
 export type ScrollSpeed = 'slow' | 'medium' | 'fast';
@@ -34,6 +34,16 @@ function autoSeconds(meta: CaptureMeta, speed: ScrollSpeed, flavor: 'before' | '
   return Math.min(Math.max(s, flavor === 'after' ? 7 : 5), flavor === 'after' ? 22 : 14);
 }
 
+function readVideoInfo(dir: string): ScrollVideoInfo | null {
+  const file = path.join(dir, 'video.json');
+  if (!fs.existsSync(file) || !fs.existsSync(path.join(dir, 'scroll.webm'))) return null;
+  try {
+    return readJson<ScrollVideoInfo>(file);
+  } catch {
+    return null;
+  }
+}
+
 function toSiteMeta(meta: CaptureMeta) {
   return {
     width: meta.imageWidth,
@@ -62,19 +72,57 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
   let beforeSeconds = autoSeconds(beforeMeta, speed, 'before');
   let afterSeconds = autoSeconds(afterMeta, speed, 'after');
 
+  // Live scroll recordings take priority: the segment plays the whole video.
+  const beforeVideo = readVideoInfo(opts.beforeDir);
+  const afterVideo = readVideoInfo(opts.afterDir);
+  if (beforeVideo) {
+    fs.copyFileSync(path.join(opts.beforeDir, 'scroll.webm'), path.join(jobDir, 'before.webm'));
+    beforeSeconds = Math.min(Math.max(beforeVideo.durationSec, 4), 55);
+  }
+  if (afterVideo) {
+    fs.copyFileSync(path.join(opts.afterDir, 'scroll.webm'), path.join(jobDir, 'after.webm'));
+    afterSeconds = Math.min(Math.max(afterVideo.durationSec, 4), 58);
+  }
+  log(
+    `footage: before=${beforeVideo ? 'live video' : 'still capture'}, after=${afterVideo ? 'live video' : 'still capture'}`,
+  );
+
   const inputProps: ReelProps = {
     ...defaultReelProps,
     ...opts.props,
     beforeImage: 'job/before.jpg',
     afterImage: 'job/after.jpg',
+    beforeVideo: beforeVideo ? 'job/before.webm' : null,
+    afterVideo: afterVideo ? 'job/after.webm' : null,
+    beforeVideoInfo: beforeVideo
+      ? {
+          prepSec: beforeVideo.prepSec,
+          holdSec: beforeVideo.holdSec,
+          pxPerSec: beforeVideo.pxPerSec,
+          maxScroll: beforeVideo.maxScroll,
+          viewportH: beforeVideo.viewportH,
+          durationSec: beforeVideo.durationSec,
+        }
+      : null,
+    afterVideoInfo: afterVideo
+      ? {
+          prepSec: afterVideo.prepSec,
+          holdSec: afterVideo.holdSec,
+          pxPerSec: afterVideo.pxPerSec,
+          maxScroll: afterVideo.maxScroll,
+          viewportH: afterVideo.viewportH,
+          durationSec: afterVideo.durationSec,
+        }
+      : null,
     beforeMeta: toSiteMeta(beforeMeta),
     afterMeta: toSiteMeta(afterMeta),
     beforeSeconds,
     afterSeconds,
   };
 
-  // Fit an exact duration target by scaling the two site segments.
-  if (opts.durationTarget) {
+  // Fit an exact duration target by scaling the two site segments (still
+  // footage only — videos play at their recorded length).
+  if (opts.durationTarget && !beforeVideo && !afterVideo) {
     const fixed = getSegments({ ...inputProps, beforeSeconds: 0, afterSeconds: 0 });
     const fixedSeconds = fixed.total / inputProps.fps;
     const budget = Math.max(opts.durationTarget - fixedSeconds, 6);
