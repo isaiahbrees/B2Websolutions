@@ -19,4 +19,8 @@ RUN npx remotion browser ensure
 COPY . .
 
 EXPOSE 3000
-CMD ["npm", "run", "web"]
+# x264 sizes its thread pool from the visible CPU count — on shared hosts
+# that's the physical machine (~60 cores), so it allocates buffers for
+# threads=60 and the container gets OOM-killed. Pinning the process (and its
+# ffmpeg children) to 4 cores makes everything size itself for the container.
+CMD ["sh", "-c", "taskset -c 0-3 npm run web || npm run web"]

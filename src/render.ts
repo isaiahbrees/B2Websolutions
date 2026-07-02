@@ -85,6 +85,9 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     composition,
     serveUrl,
     codec: 'h264',
+    // veryfast slashes x264's lookahead/reference buffers — the quality
+    // difference is invisible on a social reel, the memory difference isn't.
+    x264Preset: 'veryfast',
     outputLocation: opts.outPath,
     inputProps,
     concurrency,
