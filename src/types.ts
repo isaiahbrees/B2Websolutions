@@ -6,17 +6,25 @@ export type PageSection = {
   kind: 'hero' | 'heading' | 'cards' | 'testimonial' | 'pricing' | 'stats' | 'gallery' | 'cta';
 };
 
+export type VideoStop = {
+  /** seconds into the (trimmed) recording when the camera dwells here */
+  tSec: number;
+  /** how long the dwell lasts */
+  dwellSec: number;
+  kind: PageSection['kind'];
+};
+
 export type ScrollVideoInfo = {
   file: string;
   /** seconds of page setup at the start of the recording to trim off */
   prepSec: number;
-  /** hold at top before/after the scroll */
-  holdSec: number;
-  pxPerSec: number;
-  maxScroll: number;
+  /** recording viewport (portrait for reels) */
+  viewportW: number;
   viewportH: number;
-  /** useful duration: hold + scroll + hold (after trimming prepSec) */
+  /** useful duration after trimming prepSec */
   durationSec: number;
+  /** tour dwell points — the renderer pushes in exactly here */
+  stops: VideoStop[];
 };
 
 export type CaptureMeta = {

@@ -12,11 +12,17 @@ export const sectionSchema = z.object({
 export const videoInfoSchema = z.object({
   /** seconds of page-setup at the head of the recording to trim */
   prepSec: z.number(),
-  holdSec: z.number(),
-  pxPerSec: z.number(),
-  maxScroll: z.number(),
+  viewportW: z.number(),
   viewportH: z.number(),
   durationSec: z.number(),
+  /** tour dwell points — the camera pushes in exactly here */
+  stops: z.array(
+    z.object({
+      tSec: z.number(),
+      dwellSec: z.number(),
+      kind: sectionSchema.shape.kind,
+    }),
+  ),
 });
 
 export type VideoInfo = z.infer<typeof videoInfoSchema>;
@@ -96,7 +102,8 @@ export const defaultReelProps: ReelProps = {
 /** Frame layout of the reel. Transition overlaps the start of AFTER. */
 export function getSegments(props: Pick<ReelProps, 'beforeSeconds' | 'afterSeconds' | 'fps' | 'template'>) {
   const fps = props.fps;
-  const intro = Math.round(2.2 * fps);
+  // Tight opening — social viewers decide in the first second.
+  const intro = Math.round(1.9 * fps);
   const before = Math.round(props.beforeSeconds * fps);
   const split = props.template === 'split' ? Math.round(1.6 * fps) : 0;
   const after = Math.round(props.afterSeconds * fps);

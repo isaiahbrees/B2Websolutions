@@ -109,21 +109,20 @@ export function buildCameraPath(opts: {
 }
 
 /**
- * Zoom plan for live scroll videos. The recording scrolls at constant
- * velocity, so a section's page position maps directly to a video timestamp:
- * push in as it scrolls into view, hold, pull back out.
+ * Zoom plan for live tour recordings. The tour dwells at each section — the
+ * camera pushes in as the glide settles, holds through the dwell, and pulls
+ * back out as the glide resumes. Timestamps come from the recorded tour plan,
+ * so the push-ins land exactly on the dwells.
  */
 export function buildVideoZoom(opts: {
-  sections: Section[];
   info: VideoInfo;
   fps: number;
   durationInFrames: number;
   intensity: 'subtle' | 'balanced' | 'cinematic';
   flavor: 'minimal' | 'showcase';
 }): { frames: number[]; scales: number[] } {
-  const { sections, info, fps, durationInFrames: d, intensity, flavor } = opts;
+  const { info, fps, durationInFrames: d, intensity, flavor } = opts;
   const boost = INTENSITY[intensity] * (flavor === 'minimal' ? 0.5 : 1);
-  const scrollDur = info.maxScroll / info.pxPerSec;
 
   const frames: number[] = [];
   const scales: number[] = [];
@@ -136,23 +135,16 @@ export function buildVideoZoom(opts: {
 
   push(0, 1);
   let lastEnd = 0;
-  const eligible = sections
-    .map((s) => ({
-      zoom: Math.min(1 + (KIND_ZOOM[s.kind] - 1) * boost, 1.24),
-      // moment the section center reaches ~45% of the viewport
-      tSec: info.holdSec + Math.min(Math.max((s.y + s.h / 2 - info.viewportH * 0.45) / info.pxPerSec, 0), scrollDur),
-    }))
-    .sort((a, b) => a.tSec - b.tSec)
-    .slice(0, flavor === 'minimal' ? 2 : 4);
-
-  for (const s of eligible) {
-    const fIn = (s.tSec - 0.55) * fps;
-    const fHold = (s.tSec + 0.75) * fps;
-    const fOut = (s.tSec + 1.5) * fps;
-    if (fIn <= lastEnd + fps * 0.8 || fOut >= d - fps * 0.5) continue;
+  for (const stop of info.stops.slice(0, flavor === 'minimal' ? 2 : 5)) {
+    const zoom = Math.min(1 + (KIND_ZOOM[stop.kind] - 1) * boost, 1.24);
+    const fIn = (stop.tSec - 0.35) * fps;
+    const fPeak = (stop.tSec + 0.35) * fps;
+    const fHold = (stop.tSec + Math.max(stop.dwellSec - 0.45, 0.5)) * fps;
+    const fOut = (stop.tSec + stop.dwellSec + 0.55) * fps;
+    if (fIn <= lastEnd + fps * 0.6 || fOut >= d - fps * 0.4) continue;
     push(fIn, 1);
-    push(s.tSec * fps, s.zoom);
-    push(fHold, s.zoom);
+    push(fPeak, zoom);
+    push(fHold, zoom);
     push(fOut, 1);
     lastEnd = fOut;
   }

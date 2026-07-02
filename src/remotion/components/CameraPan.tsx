@@ -45,12 +45,13 @@ export const CameraPan: React.FC<{
   const useVideo = Boolean(video && videoInfo);
   const frameW = DESIGN_WIDTH - 104;
 
-  // Inner viewport: video is a fixed 1440x900 recording; stills adapt to the
-  // page so short sites don't leave the frame half-empty.
+  // Inner viewport: recordings are portrait (tall browser, reads like a
+  // reel); stills adapt to the page so short sites don't leave the frame
+  // half-empty.
   const displayImgH = useVideo
-    ? frameW * (900 / 1440)
+    ? frameW * (videoInfo!.viewportH / videoInfo!.viewportW)
     : frameW * (meta.height / meta.width);
-  const maxInnerH = Math.round(DESIGN_HEIGHT * 0.615);
+  const maxInnerH = Math.round(DESIGN_HEIGHT * 0.64);
   const innerH = Math.min(maxInnerH, Math.round(displayImgH));
   const frameH = innerH + CHROME_BAR_H;
 
@@ -74,20 +75,13 @@ export const CameraPan: React.FC<{
     [useVideo, meta, frameW, displayImgH, innerH, d, intensity, flavor],
   );
 
-  // Video-mode zoom plan (push into sections as they scroll past).
+  // Video-mode zoom plan (push in on the tour's dwells).
   const zoomPlan = useMemo(
     () =>
       useVideo && videoInfo
-        ? buildVideoZoom({
-            sections: meta.sections ?? [],
-            info: videoInfo,
-            fps,
-            durationInFrames: d,
-            intensity,
-            flavor,
-          })
+        ? buildVideoZoom({ info: videoInfo, fps, durationInFrames: d, intensity, flavor })
         : null,
-    [useVideo, videoInfo, meta, fps, d, intensity, flavor],
+    [useVideo, videoInfo, fps, d, intensity, flavor],
   );
 
   let content: React.ReactNode;

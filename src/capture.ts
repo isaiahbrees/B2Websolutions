@@ -756,13 +756,17 @@ async function recordWork(
   pxPerSec: number,
   browser: Awaited<ReturnType<typeof chromium.launch>>,
 ): Promise<ScrollVideoInfo | null> {
+  // Portrait viewport: the browser frame in a 9:16 reel should be TALL.
+  // Width stays 1440 so desktop layouts render as designed.
+  const VIEW_W = 1440;
+  const VIEW_H = 1800;
   const context = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
+    viewport: { width: VIEW_W, height: VIEW_H },
     deviceScaleFactor: 1,
     ignoreHTTPSErrors: true,
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    recordVideo: { dir: outDir, size: { width: 1440, height: 900 } },
+    recordVideo: { dir: outDir, size: { width: VIEW_W, height: VIEW_H } },
   });
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
@@ -771,7 +775,7 @@ async function recordWork(
   const t0 = Date.now();
 
   try {
-    log(`recording ${url} (${pxPerSec}px/s scroll)`);
+    log(`recording ${url} (${pxPerSec}px/s tour)`);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs });
     await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
     await dismissCookieBanners(page);
@@ -792,30 +796,77 @@ async function recordWork(
     await page.evaluate(`document.head.appendChild(Object.assign(document.createElement('style'), { textContent: '::-webkit-scrollbar{display:none!important} html{scrollbar-width:none!important}' })), true`);
     await page.waitForTimeout(300);
 
-    const target = Math.min(maxScroll, opts.maxHeight - 900, pxPerSec * 26);
-    const scrollDur = target / pxPerSec;
-    const holdSec = 0.8;
-    // Short pages scroll in a couple of seconds; pad the end hold so the
-    // recording always outlasts the reel segment that plays it (min segment
-    // 4s + the flash overlap).
-    const endHoldSec = holdSec + Math.max(0, 5.5 - (holdSec * 2 + scrollDur));
-    const prepSec = (Date.now() - t0) / 1000;
+    // Detect sections in THIS viewport (positions shift with viewport height
+    // on vh-based layouts) to plan the tour: glide to a section, settle,
+    // dwell while the renderer pushes in, glide on — the Screen Studio
+    // rhythm, not a conveyor belt.
+    let tourSections: PageSection[] = [];
+    try {
+      tourSections = JSON.parse(String(await page.evaluate(SECTIONS_SCRIPT)));
+    } catch {
+      /* tour degrades to a single glide */
+    }
+    const target = Math.min(maxScroll, opts.maxHeight - VIEW_H, 12_000);
+    const clampY = (y: number) => Math.min(Math.max(y, 0), target);
 
+    let waypoints = tourSections
+      .map((s) => ({ y: clampY(s.y + Math.min(s.h, VIEW_H * 0.7) / 2 - VIEW_H * 0.42), kind: s.kind }))
+      .filter((w) => w.y > 250)
+      .sort((a, b) => a.y - b.y)
+      .filter((w, i, arr) => i === 0 || w.y - arr[i - 1].y > 600)
+      .slice(0, 4);
+
+    // Build the tour timeline (Node side, deterministic) and the in-page
+    // script together, trimming dwells until it fits the time budget.
+    const DWELL = 1.5;
+    const holdSec = 0.9;
+    const plan = () => {
+      const stops: ScrollVideoInfo['stops'] = [];
+      const moves: string[] = [];
+      let t = holdSec;
+      let cur = 0;
+      for (const w of waypoints) {
+        const d = Math.min(Math.max((w.y - cur) / pxPerSec, 0.9), 4.5);
+        moves.push(`await tween(${Math.round(cur)}, ${Math.round(w.y)}, ${Math.round(d * 1000)});`);
+        t += d;
+        stops.push({ tSec: t, dwellSec: DWELL, kind: w.kind });
+        moves.push(`await hold(${DWELL * 1000});`);
+        t += DWELL;
+        cur = w.y;
+      }
+      if (target - cur > 150) {
+        const d = Math.min(Math.max((target - cur) / pxPerSec, 1.2), 6.5);
+        moves.push(`await tween(${Math.round(cur)}, ${target}, ${Math.round(d * 1000)});`);
+        t += d;
+      }
+      const endHold = Math.max(1.0, 5.6 - t);
+      moves.push(`await hold(${Math.round(endHold * 1000)});`);
+      t += endHold;
+      return { stops, moves, total: t };
+    };
+    let tour = plan();
+    while (tour.total > 30 && waypoints.length > 1) {
+      waypoints = waypoints.slice(0, waypoints.length - 1);
+      tour = plan();
+    }
+
+    const prepSec = (Date.now() - t0) / 1000;
     await page.evaluate(
       `(async () => {
         const hold = (ms) => new Promise((r) => setTimeout(r, ms));
-        window.scrollTo(0, 0);
-        await hold(${holdSec * 1000});
-        await new Promise((done) => {
+        const ease = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+        const tween = (from, to, durMs) => new Promise((done) => {
           const t0 = performance.now();
-          const step = (t) => {
-            const y = Math.min(((t - t0) / 1000) * ${pxPerSec}, ${target});
-            window.scrollTo(0, y);
-            if (y >= ${target}) done(); else requestAnimationFrame(step);
+          const step = (now) => {
+            const p = Math.min((now - t0) / durMs, 1);
+            window.scrollTo(0, from + (to - from) * ease(p));
+            if (p >= 1) done(); else requestAnimationFrame(step);
           };
           requestAnimationFrame(step);
         });
-        await hold(${Math.round(endHoldSec * 1000)});
+        window.scrollTo(0, 0);
+        await hold(${Math.round(holdSec * 1000)});
+        ${tour.moves.join('\n        ')}
       })()`,
     );
 
@@ -829,14 +880,15 @@ async function recordWork(
     const info: ScrollVideoInfo = {
       file,
       prepSec,
-      holdSec,
-      pxPerSec,
-      maxScroll: target,
-      viewportH: 900,
-      durationSec: holdSec + scrollDur + endHoldSec,
+      viewportW: VIEW_W,
+      viewportH: VIEW_H,
+      durationSec: tour.total,
+      stops: tour.stops,
     };
     writeJson(path.join(outDir, 'video.json'), info);
-    log(`  recorded ${info.durationSec.toFixed(1)}s of scroll (${target}px) after ${prepSec.toFixed(1)}s prep`);
+    log(
+      `  recorded ${info.durationSec.toFixed(1)}s tour (${tour.stops.length} dwell(s), ${target}px) after ${prepSec.toFixed(1)}s prep`,
+    );
     return info;
   } catch (err) {
     await context.close().catch(() => {});

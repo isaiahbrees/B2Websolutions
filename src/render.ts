@@ -99,21 +99,19 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     beforeVideoInfo: beforeVideo
       ? {
           prepSec: beforeVideo.prepSec,
-          holdSec: beforeVideo.holdSec,
-          pxPerSec: beforeVideo.pxPerSec,
-          maxScroll: beforeVideo.maxScroll,
+          viewportW: beforeVideo.viewportW,
           viewportH: beforeVideo.viewportH,
           durationSec: beforeVideo.durationSec,
+          stops: beforeVideo.stops,
         }
       : null,
     afterVideoInfo: afterVideo
       ? {
           prepSec: afterVideo.prepSec,
-          holdSec: afterVideo.holdSec,
-          pxPerSec: afterVideo.pxPerSec,
-          maxScroll: afterVideo.maxScroll,
+          viewportW: afterVideo.viewportW,
           viewportH: afterVideo.viewportH,
           durationSec: afterVideo.durationSec,
+          stops: afterVideo.stops,
         }
       : null,
     beforeMeta: toSiteMeta(beforeMeta),
