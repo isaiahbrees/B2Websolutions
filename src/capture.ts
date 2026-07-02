@@ -83,36 +83,41 @@ const REVEAL_SCRIPT = `(() => {
   return fixed;
 })()`;
 
-// WebGL canvases (three.js scenes) come out blank in screenshots: their
-// buffer is only readable inside the page's own rAF callback, and viewport
-// changes clear it. Snapshot each canvas at exactly that moment and swap in
-// a plain <img> — any screenshot method then captures it (proven in testing).
-const CANVAS_FREEZE_SCRIPT = `new Promise((done) => {
-  const canvases = Array.from(document.querySelectorAll('canvas')).filter((c) => c.clientWidth > 50 && c.clientHeight > 50);
-  if (!canvases.length) { done('no canvases'); return; }
-  const orig = window.requestAnimationFrame.bind(window);
-  let fired = false;
-  window.requestAnimationFrame = (cb) => orig((t) => {
-    cb(t);
-    if (fired) return;
-    fired = true;
-    let n = 0;
-    for (const c of canvases) {
-      try {
-        const url = c.toDataURL('image/png');
-        if (url.length < 2000) continue;
-        const img = new Image();
-        img.src = url;
-        img.style.cssText = 'width:' + c.clientWidth + 'px;height:' + c.clientHeight + 'px;display:block;';
-        img.className = c.className;
-        c.replaceWith(img);
-        n++;
-      } catch (e) { /* tainted canvas — leave it live */ }
+// WebGL buffers are normally cleared right after compositing, so canvases
+// read back blank and go blank on viewport changes. Force
+// preserveDrawingBuffer at context creation — this runs BEFORE any page
+// script, so it catches three.js/R3F no matter how they schedule frames.
+const PRESERVE_WEBGL_INIT = `(() => {
+  const orig = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+    if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
+      attrs = Object.assign({}, attrs || {}, { preserveDrawingBuffer: true });
     }
-    done('froze ' + n + ' canvas(es)');
-  });
-  setTimeout(() => { if (!fired) { fired = true; done('no rAF fired'); } }, 2500);
-})`;
+    return orig.call(this, type, attrs);
+  };
+})();`;
+
+// With preserved buffers, canvases can be snapshotted at any time — swap
+// each for a plain <img> so every capture strategy renders it. Tainted
+// canvases (cross-origin textures) throw on readback; leave those live,
+// the preserved buffer still displays in screenshots.
+const CANVAS_FREEZE_SCRIPT = `(() => {
+  let n = 0;
+  for (const c of Array.from(document.querySelectorAll('canvas'))) {
+    if (c.clientWidth < 50 || c.clientHeight < 50) continue;
+    try {
+      const url = c.toDataURL('image/png');
+      if (url.length < 2000) continue;
+      const img = new Image();
+      img.src = url;
+      img.style.cssText = 'width:' + c.clientWidth + 'px;height:' + c.clientHeight + 'px;display:block;';
+      img.className = c.className;
+      c.replaceWith(img);
+      n++;
+    } catch (e) { /* tainted canvas — leave it live */ }
+  }
+  return n + ' canvas(es) frozen';
+})()`;
 
 // img.decode() on an image that never finishes loading stays pending FOREVER
 // (proven in testing) — every await here must self-timeout inside the page.
@@ -505,6 +510,10 @@ async function captureWork(
   // appear in a still capture. A RegExp route only intercepts matching URLs —
   // routing '**/*' would slow every request on a heavy page.
   await context.route(/\.(mp4|webm|m3u8|mov|ts)(\?|#|$)/i, (route) => route.abort());
+
+  // Must be registered before the page loads so it patches canvas creation
+  // ahead of any site script.
+  await context.addInitScript(PRESERVE_WEBGL_INIT);
 
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
