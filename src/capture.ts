@@ -740,7 +740,7 @@ async function makeSeekable(file: string): Promise<void> {
   try {
     await execFileP(
       ffmpeg,
-      ['-y', '-i', file, '-c:v', 'vp8', '-b:v', '4M', '-g', '25', '-deadline', 'realtime', '-cpu-used', '5', '-an', tmp],
+      ['-y', '-i', file, '-c:v', 'vp8', '-b:v', '5M', '-g', '25', '-deadline', 'realtime', '-cpu-used', '5', '-an', tmp],
       { timeout: 120_000 },
     );
     const size = fs.statSync(tmp).size;
@@ -819,9 +819,10 @@ async function recordWork(
   browser: Awaited<ReturnType<typeof chromium.launch>>,
 ): Promise<ScrollVideoInfo | null> {
   // Portrait viewport: the browser frame in a 9:16 reel should be TALL.
-  // Width stays 1440 so desktop layouts render as designed.
-  const VIEW_W = 1440;
-  const VIEW_H = 1800;
+  // 1600 wide matches how designs look on a real desktop — at 1440, sites
+  // tuned for wider screens crop their hero art at the right edge.
+  const VIEW_W = 1600;
+  const VIEW_H = 2000;
   const context = await browser.newContext({
     viewport: { width: VIEW_W, height: VIEW_H },
     deviceScaleFactor: 1,
@@ -868,7 +869,9 @@ async function recordWork(
     } catch {
       /* tour degrades to a single glide */
     }
-    const target = Math.min(maxScroll, opts.maxHeight - VIEW_H, 12_000);
+    // The tour has its own budget — don't inherit the still-capture height
+    // cap, or long pages stop short of the footer.
+    const target = Math.min(maxScroll, 14_000);
     const clampY = (y: number) => Math.min(Math.max(y, 0), target);
 
     let waypoints = tourSections
