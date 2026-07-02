@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { chromium, type Page } from 'playwright';
+import { assembleCfrWebm, findPlaywrightFfmpeg, type ScreencastFrame } from './screencast';
 import type { CaptureMeta, PageSection, ScrollVideoInfo } from './types';
 import { ensureDir, log, writeJson } from './util';
 
@@ -699,30 +699,6 @@ const SPEED_PX_PER_SEC: Record<'slow' | 'medium' | 'fast', number> = {
 
 const execFileP = promisify(execFile);
 
-/** Playwright bundles the ffmpeg it records with — reuse it. */
-function findPlaywrightFfmpeg(): string | null {
-  const roots = [
-    process.env.PLAYWRIGHT_BROWSERS_PATH,
-    path.join(os.homedir(), '.cache', 'ms-playwright'),
-    path.join(os.homedir(), 'AppData', 'Local', 'ms-playwright'),
-    path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright'),
-  ].filter((p): p is string => Boolean(p));
-  for (const root of roots) {
-    try {
-      for (const entry of fs.readdirSync(root)) {
-        if (!entry.startsWith('ffmpeg')) continue;
-        for (const bin of ['ffmpeg-linux', 'ffmpeg-mac', 'ffmpeg-win64.exe']) {
-          const candidate = path.join(root, entry, bin);
-          if (fs.existsSync(candidate)) return candidate;
-        }
-      }
-    } catch {
-      /* not this root */
-    }
-  }
-  return null;
-}
-
 /**
  * Playwright's webm has sparse keyframes, so seeking N seconds in (which the
  * renderer does constantly) can force a linear decode from zero and blow
@@ -788,13 +764,13 @@ export async function recordScrollVideo(
     ],
   });
 
-  try {
-    const work = recordWork(url, outDir, opts, pxPerSec, browser);
+  const attempt = async (mode: 'screencast' | 'legacy', budgetMs: number) => {
+    const work = recordWork(url, outDir, opts, pxPerSec, browser, mode);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const watchdog = new Promise<never>((_, reject) => {
       timer = setTimeout(
-        () => reject(new Error(`video watchdog: recording ${url} exceeded 160s`)),
-        160_000,
+        () => reject(new Error(`video watchdog (${mode}): ${url} exceeded ${budgetMs / 1000}s`)),
+        budgetMs,
       );
     });
     try {
@@ -803,9 +779,20 @@ export async function recordScrollVideo(
       clearTimeout(timer);
       work.catch(() => {});
     }
-  } catch (err) {
-    log(`scroll video failed for ${url} (${err instanceof Error ? err.message.split('\n')[0].slice(0, 90) : err}) — reel falls back to stills`);
-    return null;
+  };
+
+  const brief = (e: unknown) => (e instanceof Error ? e.message.split('\n')[0].slice(0, 90) : String(e));
+  try {
+    // 60fps compositor screencast first; Playwright's 25fps recorder as backup.
+    return await attempt('screencast', 220_000);
+  } catch (e1) {
+    log(`screencast recording failed (${brief(e1)}) — falling back to standard recorder`);
+    try {
+      return await attempt('legacy', 160_000);
+    } catch (e2) {
+      log(`scroll video failed for ${url} (${brief(e2)}) — reel falls back to stills`);
+      return null;
+    }
   } finally {
     await browser.close();
   }
@@ -817,6 +804,7 @@ async function recordWork(
   opts: Required<CaptureOptions>,
   pxPerSec: number,
   browser: Awaited<ReturnType<typeof chromium.launch>>,
+  mode: 'screencast' | 'legacy',
 ): Promise<ScrollVideoInfo | null> {
   // Portrait viewport: the browser frame in a 9:16 reel should be TALL.
   // 1600 wide matches how designs look on a real desktop — at 1440, sites
@@ -829,7 +817,11 @@ async function recordWork(
     ignoreHTTPSErrors: true,
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    recordVideo: { dir: outDir, size: { width: VIEW_W, height: VIEW_H } },
+    // The legacy path records via Playwright's built-in 25fps recorder; the
+    // screencast path streams compositor frames itself at up to 60fps.
+    ...(mode === 'legacy'
+      ? { recordVideo: { dir: outDir, size: { width: VIEW_W, height: VIEW_H } } }
+      : {}),
   });
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
@@ -916,8 +908,7 @@ async function recordWork(
     }
 
     const prepSec = (Date.now() - t0) / 1000;
-    await page.evaluate(
-      `(async () => {
+    const tourScript = `(async () => {
         const hold = (ms) => new Promise((r) => setTimeout(r, ms));
         const ease = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
         const tween = (from, to, durMs) => new Promise((done) => {
@@ -932,33 +923,83 @@ async function recordWork(
         window.scrollTo(0, 0);
         await hold(${Math.round(holdSec * 1000)});
         ${tour.moves.join('\n        ')}
-      })()`,
-    );
+      })()`;
 
-    const video = page.video();
-    await context.close(); // finalizes the recording
-    if (!video) return null;
     const file = path.join(outDir, 'scroll.webm');
-    await video.saveAs(file);
-    await video.delete().catch(() => {});
-    await makeSeekable(file);
+    let durationSec: number;
+    let infoPrepSec: number;
+
+    if (mode === 'screencast') {
+      const framesDir = path.join(outDir, 'frames-tmp');
+      fs.rmSync(framesDir, { recursive: true, force: true });
+      fs.mkdirSync(framesDir, { recursive: true });
+      const frames: ScreencastFrame[] = [];
+      try {
+        const cdp = await context.newCDPSession(page);
+        cdp.on('Page.screencastFrame', (ev) => {
+          try {
+            const frameFile = path.join(framesDir, `f${String(frames.length).padStart(6, '0')}.jpg`);
+            fs.writeFileSync(frameFile, Buffer.from(ev.data, 'base64'));
+            frames.push({ file: frameFile, t: ev.metadata?.timestamp ?? Date.now() / 1000 });
+          } catch {
+            /* one dropped frame is fine */
+          }
+          cdp.send('Page.screencastFrameAck', { sessionId: ev.sessionId }).catch(() => {});
+        });
+        await cdp.send('Page.startScreencast', {
+          format: 'jpeg',
+          quality: 92,
+          maxWidth: VIEW_W,
+          maxHeight: VIEW_H,
+          everyNthFrame: 1,
+        });
+        await page.evaluate(tourScript);
+        await cdp.send('Page.stopScreencast').catch(() => {});
+        await page.waitForTimeout(200);
+        await context.close();
+        // The compositor only emits on change — CFR assembly duplicates
+        // frames through the dwells and pads to the planned duration.
+        durationSec = await assembleCfrWebm({
+          frames,
+          outFile: file,
+          fps: 60,
+          minDurationSec: tour.total,
+          bitrate: '8M',
+        });
+        // Screencast starts at the tour itself — nothing to trim.
+        infoPrepSec = 0;
+        log(`  screencast: ${frames.length} frames -> ${durationSec.toFixed(1)}s @60fps CFR`);
+      } finally {
+        fs.rmSync(framesDir, { recursive: true, force: true });
+      }
+    } else {
+      await page.evaluate(tourScript);
+      const video = page.video();
+      await context.close(); // finalizes the recording
+      if (!video) return null;
+      await video.saveAs(file);
+      await video.delete().catch(() => {});
+      await makeSeekable(file);
+      durationSec = tour.total;
+      infoPrepSec = prepSec;
+    }
 
     const info: ScrollVideoInfo = {
       file,
-      prepSec,
+      prepSec: infoPrepSec,
       viewportW: VIEW_W,
       viewportH: VIEW_H,
-      durationSec: tour.total,
+      durationSec,
       stops: tour.stops,
     };
     writeJson(path.join(outDir, 'video.json'), info);
     log(
-      `  recorded ${info.durationSec.toFixed(1)}s tour (${tour.stops.length} dwell(s), ${target}px) after ${prepSec.toFixed(1)}s prep`,
+      `  recorded ${info.durationSec.toFixed(1)}s tour (${mode}, ${tour.stops.length} dwell(s), ${target}px)`,
     );
     return info;
   } catch (err) {
     await context.close().catch(() => {});
-    // Don't leave the raw random-named webm behind on failure.
+    // Don't leave the raw random-named webm behind on failure (legacy mode).
     await page.video()?.delete().catch(() => {});
     throw err;
   }
