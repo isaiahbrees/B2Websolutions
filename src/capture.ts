@@ -139,6 +139,9 @@ export async function captureSite(
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH || undefined,
     proxy: process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY } : undefined,
+    // Containers cap /dev/shm at 64MB; heavy pages crash Chromium's renderer
+    // ("page.goto: Page crashed") unless it uses regular memory instead.
+    args: ['--disable-dev-shm-usage', '--disable-gpu'],
   });
 
   try {
