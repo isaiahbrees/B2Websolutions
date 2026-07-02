@@ -12,8 +12,8 @@ export type CaptureOptions = {
   /** 2 = retina-sharp footage, larger files. */
   deviceScaleFactor?: number;
   timeoutMs?: number;
-  /** Hard budget for the whole capture — a frozen tab can hang page.evaluate
-   * forever, and one stuck site must never block the job queue. */
+  /** Hard budget for the whole capture — the last line of defense; every
+   * individual step is also bounded so one stuck site never blocks the queue. */
   watchdogMs?: number;
 };
 
@@ -24,7 +24,7 @@ const DEFAULTS: Required<CaptureOptions> = {
   // cost of full retina on image-heavy pages.
   deviceScaleFactor: 1.5,
   timeoutMs: 40_000,
-  watchdogMs: 110_000,
+  watchdogMs: 150_000,
 };
 
 /** Read width/height straight out of a JPEG's SOF marker. */
@@ -77,6 +77,23 @@ const REVEAL_SCRIPT = `(() => {
   return fixed;
 })()`;
 
+// img.decode() on an image that never finishes loading stays pending FOREVER
+// (proven in testing) — every await here must self-timeout inside the page.
+const DECODE_SCRIPT = `Promise.race([
+  Promise.allSettled(
+    Array.from(document.images)
+      .filter((im) => im.src && !im.complete)
+      .slice(0, 40)
+      .map((img) => img.decode())
+  ),
+  new Promise((r) => setTimeout(r, 4000)),
+]).then(() => true)`;
+
+const FONTS_SCRIPT = `Promise.race([
+  document.fonts.ready,
+  new Promise((r) => setTimeout(r, 4000)),
+]).then(() => true)`;
+
 const SECTIONS_SCRIPT = `(() => {
   const out = [];
   const taken = [];
@@ -117,7 +134,7 @@ async function dismissCookieBanners(page: Page): Promise<void> {
   for (const sel of attempts) {
     try {
       const el = page.locator(sel).first();
-      if (await el.isVisible({ timeout: 300 })) {
+      if (await el.isVisible()) {
         await el.click({ timeout: 800 });
         log(`dismissed cookie banner via ${sel}`);
         await page.waitForTimeout(400);
@@ -134,8 +151,8 @@ async function dismissCookieBanners(page: Page): Promise<void> {
  * scroll-reveal animations, cookie banners), save a sharp full-page
  * screenshot, and detect page sections so the renderer can plan camera moves.
  *
- * Very heavy pages can crash the browser tab in a memory-capped container;
- * when that happens we retry once in a lighter profile instead of failing.
+ * Every step is individually time-boxed and logged; optional steps degrade
+ * gracefully. Heavy pages that crash or stall retry once in a lite profile.
  */
 export async function captureSite(
   url: string,
@@ -155,7 +172,7 @@ export async function captureSite(
       ...options,
       deviceScaleFactor: 1,
       maxHeight: 4500,
-      watchdogMs: 90_000,
+      watchdogMs: 100_000,
     });
   }
 }
@@ -208,128 +225,136 @@ async function captureWork(
   opts: Required<CaptureOptions>,
   browser: Awaited<ReturnType<typeof chromium.launch>>,
 ): Promise<CaptureMeta> {
-  {
-    const context = await browser.newContext({
-      viewport: { width: opts.width, height: 900 },
-      deviceScaleFactor: opts.deviceScaleFactor,
-      ignoreHTTPSErrors: true,
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    });
-    // Background/autoplay videos eat hundreds of MB of tab memory and never
-    // appear in a still capture — drop them at the network layer.
-    await context.route(
-      '**/*',
-      (route) =>
-        ['media'].includes(route.request().resourceType()) ||
-        /\.(mp4|webm|m3u8|ts)(\?|$)/i.test(route.request().url())
-          ? route.abort()
-          : route.continue(),
-    );
+  const context = await browser.newContext({
+    viewport: { width: opts.width, height: 900 },
+    deviceScaleFactor: opts.deviceScaleFactor,
+    ignoreHTTPSErrors: true,
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  });
 
-    const page = await context.newPage();
-    page.setDefaultTimeout(15_000);
+  // Background/autoplay videos eat hundreds of MB of tab memory and never
+  // appear in a still capture. A RegExp route only intercepts matching URLs —
+  // routing '**/*' would slow every request on a heavy page.
+  await context.route(/\.(mp4|webm|m3u8|mov|ts)(\?|#|$)/i, (route) => route.abort());
 
-    log(`loading ${url}`);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs });
-    await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {
-      log('network never went idle (ads/analytics?) — continuing');
-    });
+  const page = await context.newPage();
+  page.setDefaultTimeout(15_000);
 
-    await dismissCookieBanners(page);
-
-    // Wait for web fonts so text isn't captured mid font-swap.
-    await page
-      .evaluate('Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 4000))])')
-      .catch(() => {});
-
-    // Scroll through the page so lazy-loaded content and scroll-triggered
-    // animations fire, then return to the top.
-    await page.evaluate(
-      `(async () => {
-        const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-        const limit = Math.min(document.body.scrollHeight, ${opts.maxHeight});
-        for (let y = 0; y < limit; y += 600) {
-          window.scrollTo(0, y);
-          await delay(140);
-        }
-        window.scrollTo(0, 0);
-        await delay(500);
-      })()`,
-    );
-
-    // Freeze animations + force scroll-revealed content visible, so sections
-    // that only appear "in view" aren't blank in the screenshot.
-    const revealed = Number(await page.evaluate(REVEAL_SCRIPT).catch(() => 0));
-    if (revealed > 0) log(`forced ${revealed} scroll-reveal element(s) visible`);
-
-    // Best effort: wait for images to actually decode.
-    await page
-      .evaluate(
-        `Promise.allSettled(
-          Array.from(document.images).slice(0, 60).map((img) => img.decode())
-        )`,
-      )
-      .catch(() => {});
-    await page.waitForTimeout(600);
-
-    // Detect sections for the smart camera plan.
-    let sections: PageSection[] = [];
+  // Time-boxed step runner: optional work can be slow or stuck on hostile
+  // pages; log how long each step took and move on when the budget is spent.
+  const step = async <T>(name: string, ms: number, fn: () => Promise<T>, fallback: T): Promise<T> => {
+    const s0 = Date.now();
     try {
-      sections = JSON.parse(String(await page.evaluate(SECTIONS_SCRIPT)));
-    } catch {
-      log('section detection failed — falling back to plain scroll');
+      const result = await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`step '${name}' hit its ${ms / 1000}s budget`)), ms),
+        ),
+      ]);
+      log(`  ${name}: ${((Date.now() - s0) / 1000).toFixed(1)}s`);
+      return result;
+    } catch (err) {
+      const detail = err instanceof Error ? err.message.split('\n')[0].slice(0, 90) : String(err);
+      log(`  ${name}: skipped after ${((Date.now() - s0) / 1000).toFixed(1)}s (${detail})`);
+      return fallback;
     }
+  };
 
-    const pageHeight = Number(await page.evaluate('document.body.scrollHeight'));
-    const cssHeightGuess = Math.min(Math.max(pageHeight, 900), opts.maxHeight);
-    const title = await page.title();
+  const t0 = Date.now();
+  log(`loading ${url}`);
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeoutMs });
+  await step('settle network', 9_000, () => page.waitForLoadState('networkidle', { timeout: 8_000 }), undefined);
+  await step('cookie banners', 10_000, () => dismissCookieBanners(page), undefined);
+  await step('web fonts', 6_000, () => page.evaluate(FONTS_SCRIPT), undefined);
 
-    const imageFile = path.join(outDir, 'site.jpg');
-    if (pageHeight <= opts.maxHeight) {
-      await page.screenshot({
-        path: imageFile,
-        type: 'jpeg',
-        quality: 90,
-        fullPage: true,
-        timeout: 60_000,
-      });
-    } else {
-      await page.screenshot({
-        path: imageFile,
-        type: 'jpeg',
-        quality: 90,
-        clip: { x: 0, y: 0, width: opts.width, height: cssHeightGuess },
-        timeout: 60_000,
-      });
-    }
+  // Scroll through the page so lazy-loaded content and scroll-triggered
+  // animations fire, then return to the top. Iteration-capped so infinite
+  // scroll pages terminate.
+  await step(
+    'scroll-through',
+    22_000,
+    () =>
+      page.evaluate(
+        `(async () => {
+          const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+          let y = 0;
+          for (let i = 0; i < 14 && y < ${opts.maxHeight}; i++) {
+            y += 650;
+            window.scrollTo(0, Math.min(y, document.body.scrollHeight));
+            await delay(130);
+            if (y >= document.body.scrollHeight) break;
+          }
+          window.scrollTo(0, 0);
+          await delay(400);
+        })()`,
+      ),
+    undefined,
+  );
 
-    // THE source of truth: what's actually in the file. DOM-reported heights
-    // lie on animated/parallax sites, and trusting them made the camera
-    // scroll past the end of the image into blank space.
-    const dims = jpegDimensions(imageFile);
-    if (!dims) throw new Error(`Could not read dimensions of capture ${imageFile}`);
-    const trueCssHeight = Math.round(dims.height / (dims.width / opts.width));
+  const revealed = await step('reveal hidden content', 10_000, async () => Number(await page.evaluate(REVEAL_SCRIPT)), 0);
+  if (revealed > 0) log(`  forced ${revealed} scroll-reveal element(s) visible`);
+  await step('image decode', 8_000, () => page.evaluate(DECODE_SCRIPT), undefined);
+  await page.waitForTimeout(500);
 
-    // Drop sections the screenshot doesn't actually cover.
-    sections = sections.filter((s) => s.y < trueCssHeight - 200);
+  const sections = await step(
+    'detect sections',
+    10_000,
+    async () => JSON.parse(String(await page.evaluate(SECTIONS_SCRIPT))) as PageSection[],
+    [],
+  );
 
-    const meta: CaptureMeta = {
-      url,
-      title,
-      cssWidth: opts.width,
-      cssHeight: trueCssHeight,
-      imageWidth: dims.width,
-      imageHeight: dims.height,
-      deviceScaleFactor: opts.deviceScaleFactor,
-      sections,
-      imageFile,
-      capturedAt: new Date().toISOString(),
-    };
-    writeJson(path.join(outDir, 'meta.json'), meta);
-    log(
-      `captured ${url} -> ${dims.width}x${dims.height}px (${opts.width}x${trueCssHeight} css), ${sections.length} section(s) detected`,
-    );
-    return meta;
+  // Fallback pushes us into the (always safe) clip branch below.
+  const pageHeight = await step(
+    'measure page height',
+    8_000,
+    async () => Number(await page.evaluate('document.body.scrollHeight')),
+    opts.maxHeight + 1,
+  );
+  const cssHeightGuess = Math.min(Math.max(pageHeight, 900), opts.maxHeight);
+  const title = await step('read title', 5_000, () => page.title(), '');
+
+  const imageFile = path.join(outDir, 'site.jpg');
+  const shoot = (height: number, timeout: number) =>
+    pageHeight <= opts.maxHeight && height >= cssHeightGuess
+      ? page.screenshot({ path: imageFile, type: 'jpeg', quality: 90, fullPage: true, timeout })
+      : page.screenshot({
+          path: imageFile,
+          type: 'jpeg',
+          quality: 90,
+          clip: { x: 0, y: 0, width: opts.width, height },
+          timeout,
+        });
+  try {
+    await shoot(cssHeightGuess, 60_000);
+  } catch (err) {
+    log(`screenshot failed (${err instanceof Error ? err.message.split('\n')[0].slice(0, 80) : err}) — retrying shorter`);
+    await shoot(Math.min(cssHeightGuess, 3500), 45_000);
   }
+
+  // THE source of truth: what's actually in the file. DOM-reported heights
+  // lie on animated/parallax sites, and trusting them made the camera
+  // scroll past the end of the image into blank space.
+  const dims = jpegDimensions(imageFile);
+  if (!dims) throw new Error(`Could not read dimensions of capture ${imageFile}`);
+  const trueCssHeight = Math.round(dims.height / (dims.width / opts.width));
+
+  const meta: CaptureMeta = {
+    url,
+    title,
+    cssWidth: opts.width,
+    cssHeight: trueCssHeight,
+    imageWidth: dims.width,
+    imageHeight: dims.height,
+    deviceScaleFactor: opts.deviceScaleFactor,
+    // Drop sections the screenshot doesn't actually cover.
+    sections: sections.filter((s) => s.y < trueCssHeight - 200),
+    imageFile,
+    capturedAt: new Date().toISOString(),
+  };
+  writeJson(path.join(outDir, 'meta.json'), meta);
+  log(
+    `captured ${url} -> ${dims.width}x${dims.height}px in ${((Date.now() - t0) / 1000).toFixed(1)}s, ${meta.sections.length} section(s)`,
+  );
+  return meta;
 }
