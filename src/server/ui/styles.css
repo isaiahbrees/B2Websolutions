@@ -126,6 +126,15 @@ details.advanced[open] summary { margin-bottom: 4px; }
 
 .stage { margin-top: 10px; }
 
+.thumbs { display: flex; gap: 16px; margin-top: 14px; }
+.thumbs figure { margin: 0; }
+.thumb {
+  width: 130px; height: 180px; overflow: hidden;
+  border-radius: 10px; border: 1px solid var(--border); background: #fff;
+}
+.thumb img { width: 100%; display: block; }
+.thumbs figcaption { font-size: 12px; color: var(--muted); margin-top: 6px; max-width: 130px; }
+
 .progress {
   height: 8px; border-radius: 4px; background: #e8e8ed;
   overflow: hidden; margin-top: 14px;

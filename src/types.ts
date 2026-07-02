@@ -18,6 +18,8 @@ export type CaptureMeta = {
   imageWidth: number;
   imageHeight: number;
   deviceScaleFactor: number;
+  /** 'full' or 'lite' (crash-retry profile: 1x density, no WebGL) */
+  mode: 'full' | 'lite';
   /** Detected page sections for the smart camera plan (CSS px coordinates) */
   sections: PageSection[];
   imageFile: string;

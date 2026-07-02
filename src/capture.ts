@@ -81,6 +81,37 @@ const REVEAL_SCRIPT = `(() => {
   return fixed;
 })()`;
 
+// WebGL canvases (three.js scenes) come out blank in screenshots: their
+// buffer is only readable inside the page's own rAF callback, and viewport
+// changes clear it. Snapshot each canvas at exactly that moment and swap in
+// a plain <img> — any screenshot method then captures it (proven in testing).
+const CANVAS_FREEZE_SCRIPT = `new Promise((done) => {
+  const canvases = Array.from(document.querySelectorAll('canvas')).filter((c) => c.clientWidth > 50 && c.clientHeight > 50);
+  if (!canvases.length) { done('no canvases'); return; }
+  const orig = window.requestAnimationFrame.bind(window);
+  let fired = false;
+  window.requestAnimationFrame = (cb) => orig((t) => {
+    cb(t);
+    if (fired) return;
+    fired = true;
+    let n = 0;
+    for (const c of canvases) {
+      try {
+        const url = c.toDataURL('image/png');
+        if (url.length < 2000) continue;
+        const img = new Image();
+        img.src = url;
+        img.style.cssText = 'width:' + c.clientWidth + 'px;height:' + c.clientHeight + 'px;display:block;';
+        img.className = c.className;
+        c.replaceWith(img);
+        n++;
+      } catch (e) { /* tainted canvas — leave it live */ }
+    }
+    done('froze ' + n + ' canvas(es)');
+  });
+  setTimeout(() => { if (!fired) { fired = true; done('no rAF fired'); } }, 2500);
+})`;
+
 // img.decode() on an image that never finishes loading stays pending FOREVER
 // (proven in testing) — every await here must self-timeout inside the page.
 const DECODE_SCRIPT = `Promise.race([
@@ -351,10 +382,8 @@ async function captureWork(
   const revealed = await step('reveal hidden content', 10_000, async () => Number(await page.evaluate(REVEAL_SCRIPT)), 0);
   if (revealed > 0) log(`  forced ${revealed} scroll-reveal element(s) visible`);
 
-  // Stop requestAnimationFrame loops (three.js etc.): the canvas keeps its
-  // last composited frame for the screenshot, and software-rendered WebGL
-  // stops burning tab memory/CPU for the rest of the capture.
-  await step('freeze animation loops', 4_000, () => page.evaluate('(window.requestAnimationFrame = () => 0, true)'), undefined);
+  const frozen = await step('freeze canvases', 8_000, async () => String(await page.evaluate(CANVAS_FREEZE_SCRIPT)), 'skipped');
+  log(`  ${frozen}`);
   await step('image decode', 8_000, () => page.evaluate(DECODE_SCRIPT), undefined);
   await page.waitForTimeout(500);
 
@@ -409,6 +438,7 @@ async function captureWork(
     imageWidth: dims.width,
     imageHeight: dims.height,
     deviceScaleFactor: opts.deviceScaleFactor,
+    mode: opts.webgl ? 'full' : 'lite',
     // Drop sections the screenshot doesn't actually cover.
     sections: sections.filter((s) => s.y < trueCssHeight - 200),
     imageFile,

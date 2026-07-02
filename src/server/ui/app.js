@@ -74,6 +74,20 @@ function jobCard(job) {
       <span class="badge badge-${job.status}">${STATUS_LABELS[job.status] || job.status}</span>
     </div>
     ${busy && job.stage ? `<div class="muted small stage">${escapeHtml(job.stage)}</div>` : ''}
+    ${
+      job.captures
+        ? `<div class="thumbs">${['before', 'after']
+            .map((k) => {
+              const c = job.captures[k];
+              if (!c) return '';
+              return `<figure>
+                <div class="thumb"><img src="/api/jobs/${job.id}/capture/${k}" alt="${k} capture" loading="lazy"></div>
+                <figcaption>${k} · ${c.cssWidth}×${c.cssHeight}px · ${c.sections} section${c.sections === 1 ? '' : 's'}${c.mode === 'lite' ? ' · lite mode' : ''}</figcaption>
+              </figure>`;
+            })
+            .join('')}</div>`
+        : ''
+    }
     ${job.status === 'rendering' ? `<div class="progress"><div style="width:${pct}%"></div></div><div class="muted small">${pct}%</div>` : ''}
     ${busy && job.status !== 'rendering' ? '<div class="progress indeterminate"><div></div></div>' : ''}
     ${job.error ? `<p class="error">${escapeHtml(job.error)}</p>` : ''}

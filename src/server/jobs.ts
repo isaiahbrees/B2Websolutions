@@ -22,6 +22,13 @@ export type JobParams = {
 
 export type JobStatus = 'queued' | 'capturing' | 'rendering' | 'posting' | 'done' | 'error';
 
+export type CaptureSummary = {
+  cssWidth: number;
+  cssHeight: number;
+  sections: number;
+  mode: string;
+};
+
 export type Job = {
   id: string;
   createdAt: string;
@@ -31,6 +38,8 @@ export type Job = {
   stage?: string;
   /** 0..1 while rendering */
   progress: number;
+  /** What each capture actually got — shown as thumbnails in the UI. */
+  captures?: { before?: CaptureSummary; after?: CaptureSummary };
   error?: string;
   videoFile?: string;
   postedId?: string;
@@ -113,10 +122,17 @@ function friendlyError(err: unknown): string {
 async function runJob(job: Job): Promise<void> {
   const dir = jobDir(job);
   try {
+    const summarize = (m: Awaited<ReturnType<typeof captureSite>>): CaptureSummary => ({
+      cssWidth: m.cssWidth,
+      cssHeight: m.cssHeight,
+      sections: m.sections.length,
+      mode: m.mode,
+    });
     update(job, { status: 'capturing', stage: 'Loading the before site' });
-    await captureSite(job.params.beforeUrl, path.join(dir, 'before'));
-    update(job, { stage: 'Loading the after site' });
-    await captureSite(job.params.afterUrl, path.join(dir, 'after'));
+    const beforeMeta = await captureSite(job.params.beforeUrl, path.join(dir, 'before'));
+    update(job, { captures: { before: summarize(beforeMeta) }, stage: 'Loading the after site' });
+    const afterMeta = await captureSite(job.params.afterUrl, path.join(dir, 'after'));
+    update(job, { captures: { before: summarize(beforeMeta), after: summarize(afterMeta) } });
 
     update(job, { status: 'rendering', stage: 'Planning camera moves', progress: 0 });
     const videoFile = path.join(dir, 'reel.mp4');
