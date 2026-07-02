@@ -143,20 +143,37 @@ async function runJob(job: Job): Promise<void> {
 
     update(job, { status: 'rendering', stage: 'Planning camera moves', progress: 0 });
     const videoFile = path.join(dir, 'reel.mp4');
-    await renderReel({
-      beforeDir: path.join(dir, 'before'),
-      afterDir: path.join(dir, 'after'),
-      outPath: videoFile,
-      props: { ...job.params.style, clientName: job.params.clientName },
-      scrollSpeed: job.params.scrollSpeed,
-      durationTarget: job.params.durationTarget,
-      onProgress: (progress) => {
-        // Persisting every frame would hammer the disk; every ~2% is plenty.
-        if (progress - job.progress >= 0.02 || progress === 1) {
-          update(job, { progress, stage: 'Rendering the reel' });
-        }
-      },
-    });
+    const render = (ignoreVideos: boolean) =>
+      renderReel({
+        beforeDir: path.join(dir, 'before'),
+        afterDir: path.join(dir, 'after'),
+        outPath: videoFile,
+        props: { ...job.params.style, clientName: job.params.clientName },
+        scrollSpeed: job.params.scrollSpeed,
+        durationTarget: job.params.durationTarget,
+        ignoreVideos,
+        onProgress: (progress) => {
+          // Persisting every frame would hammer the disk; every ~2% is plenty.
+          if (progress - job.progress >= 0.02 || progress === 1) {
+            update(job, { progress, stage: 'Rendering the reel' });
+          }
+        },
+      });
+    try {
+      await render(false);
+    } catch (err) {
+      const hadVideo =
+        fs.existsSync(path.join(dir, 'before', 'video.json')) ||
+        fs.existsSync(path.join(dir, 'after', 'video.json'));
+      if (!hadVideo) throw err;
+      // The job must ALWAYS produce a reel: if the video render dies for any
+      // reason, fall back to the proven still-capture render.
+      log(
+        `job ${job.id}: video render failed (${err instanceof Error ? err.message.split('\n')[0].slice(0, 90) : err}) — retrying with stills`,
+      );
+      update(job, { stage: 'Video render failed — retrying with stills', progress: 0 });
+      await render(true);
+    }
     update(job, { videoFile, progress: 1, stage: 'Finalizing MP4' });
 
     if (job.params.postVia) {

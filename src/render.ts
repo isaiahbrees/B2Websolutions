@@ -19,6 +19,8 @@ export type RenderOptions = {
   durationTarget?: number | null;
   /** Render at reduced resolution for fast previews, e.g. 0.5 */
   scale?: number;
+  /** Skip live recordings and render from stills (crash-recovery path). */
+  ignoreVideos?: boolean;
   onProgress?: (progress: number) => void;
 };
 
@@ -73,8 +75,8 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
   let afterSeconds = autoSeconds(afterMeta, speed, 'after');
 
   // Live scroll recordings take priority: the segment plays the whole video.
-  const beforeVideo = readVideoInfo(opts.beforeDir);
-  const afterVideo = readVideoInfo(opts.afterDir);
+  const beforeVideo = opts.ignoreVideos ? null : readVideoInfo(opts.beforeDir);
+  const afterVideo = opts.ignoreVideos ? null : readVideoInfo(opts.afterDir);
   // Leave headroom at the tail: the Before segment plays flash-overlap frames
   // past its nominal end, and the segment must never outrun the footage.
   if (beforeVideo) {
@@ -170,6 +172,10 @@ export async function renderReel(opts: RenderOptions): Promise<string> {
     // Video-frame extraction on long recordings can legitimately take a
     // while on shared CPUs; don't let the default 30s kill the render.
     timeoutInMilliseconds: 120_000,
+    // Remotion sizes its video-frame cache from the HOST's free memory, which
+    // inside a container is a lie (the cgroup limit is far smaller) — the
+    // compositor then gets OOM-killed. Cap it explicitly.
+    offthreadVideoCacheSizeInBytes: Number(process.env.REMOTION_VIDEO_CACHE_MB || 384) * 1024 * 1024,
     browserExecutable: process.env.REMOTION_CHROME || undefined,
     chromiumOptions: { ignoreCertificateErrors: true },
     onProgress: ({ progress }) => {
