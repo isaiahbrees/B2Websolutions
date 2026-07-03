@@ -101,13 +101,18 @@ const REVEAL_SCRIPT = `(() => {
 const POPUP_GUARD_INIT = `(() => {
   if (window.__rwPopupGuard) return;
   window.__rwPopupGuard = true;
+  window.__rwZapCount = 0;
   const VENDOR = [
     '[class*="klaviyo-form" i]', '.klaviyo-form-modal', '[id^="om-"]', '.privy-popup', '.privy-modal',
     '[id^="sumome-"]', '[class*="mailmunch" i]', '.ju_Con', '[class*="wisepops" i]', '[class*="poptin" i]',
     '[data-elementor-type="popup"]', '.pum-overlay', '.sgpb-popup-overlay-main-div', '[class*="omnisend" i]',
     '[class*="justuno" i]', '[id*="hellobar" i]', '.mfp-wrap.mfp-ready', '[class*="newsletter-popup" i]',
     '[class*="exit-intent" i]', '[id*="exit-intent" i]', '[class*="popup-overlay" i]',
+    '#POPUPS_ROOT', '.sqs-popup-overlay', '.sqs-slide-wrapper[data-slide-type="popup-overlay"]',
+    '[data-aid*="POPUP"]', '[class*="promo-popup" i]', '[id*="promo-popup" i]',
   ].join(',');
+  const DIALOGISH = '[role="dialog"], [aria-modal="true"], [class*="popup" i], [id*="popup" i], [class*="newsletter" i], [class*="modal" i], [id*="modal" i], [class*="lightbox" i], [id*="lightbox" i], [class*="promo" i], [class*="subscribe" i], [class*="signup" i]';
+  const CLOSERS = '[aria-label*="close" i], [class*="close" i], [id*="close" i], [title*="close" i], [data-testid*="close" i]';
   const original = new WeakSet();
   let baselined = false;
   const baseline = () => {
@@ -118,30 +123,48 @@ const POPUP_GUARD_INIT = `(() => {
     if (!(el instanceof HTMLElement)) return false;
     try { if (el.matches(VENDOR)) return true; } catch {}
     if (!baselined) return false;
-    const dialogish = el.matches('[role="dialog"], [aria-modal="true"], [class*="popup" i], [id*="popup" i], [class*="newsletter" i]');
-    if (original.has(el) && !dialogish) return false;
     const cs = getComputedStyle(el);
-    if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') return false;
-    if ((parseInt(cs.zIndex, 10) || 0) < 900) return false;
+    if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.05) return false;
+    const z = parseInt(cs.zIndex, 10) || 0;
+    const fixed = cs.position === 'fixed';
+    if (!fixed && !(cs.position === 'absolute' && z >= 900)) return false;
+    // Visible-intersection coverage — an oversized backdrop counts what's on
+    // screen, a small centered dialog counts its true footprint.
     const r = el.getBoundingClientRect();
-    const cover = (r.width * r.height) / (innerWidth * innerHeight);
-    return cover > 0.35 || (dialogish && cover > 0.08);
+    const ix = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0));
+    const iy = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+    const cover = (ix * iy) / (innerWidth * innerHeight);
+    if (cover < 0.02) return false;
+    // Anything holding a big chunk of the page is the site, not a popup:
+    // SPA shells mount after DOMContentLoaded and would otherwise look "new".
+    if (el.querySelectorAll('*').length > 300 || (el.textContent || '').length > 1500) return false;
+    const dialogish = el.matches(DIALOGISH);
+    const fresh = !original.has(el);
+    if (fresh) {
+      if (cover > 0.5) return true;                                // backdrop / full-screen takeover
+      if (z >= 900 && cover > 0.25) return true;                   // large overlay
+      if (z >= 900 && cover > 0.02 && el.querySelector(CLOSERS)) return true; // small dialog with a close control
+      if (dialogish && z >= 100 && cover > 0.04) return true;
+      return false;
+    }
+    // Present at load: only self-declared dialogs that later become visible.
+    return dialogish && z >= 900 && cover > 0.05;
   };
   const zap = (el) => {
     if (el.hasAttribute('data-rw-zap')) return;
     el.setAttribute('data-rw-zap', '');
+    window.__rwZapCount++;
     // Popups freeze the page behind them with inline overflow:hidden.
     for (const n of [document.documentElement, document.body]) {
       if (n && n.style.overflow === 'hidden') n.style.overflow = '';
     }
   };
+  const consider = (el) => { if (isPopup(el)) zap(el); };
   const sweep = (root) => {
-    if (isPopup(root)) { zap(root); return; }
+    consider(root);
     if (!(root instanceof HTMLElement) || !root.querySelectorAll) return;
     try {
-      for (const el of root.querySelectorAll(VENDOR + ', [role="dialog"], [aria-modal="true"]')) {
-        if (isPopup(el)) zap(el);
-      }
+      for (const el of root.querySelectorAll(VENDOR + ', ' + DIALOGISH)) consider(el);
     } catch {}
   };
   const style = document.createElement('style');
@@ -150,7 +173,7 @@ const POPUP_GUARD_INIT = `(() => {
   new MutationObserver((muts) => {
     for (const m of muts) {
       if (m.type === 'childList') for (const n of m.addedNodes) sweep(n);
-      else if (m.target instanceof HTMLElement && isPopup(m.target)) zap(m.target);
+      else if (m.target instanceof HTMLElement) consider(m.target);
     }
     // Init scripts run before <html> exists — observe the document node
     // itself (works with subtree), never document.documentElement.
@@ -158,10 +181,15 @@ const POPUP_GUARD_INIT = `(() => {
   const arm = () => { attach(); baseline(); if (document.body) sweep(document.body); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', arm);
   else arm();
-  // Late belt-and-braces pass: body-level popups whose signals settle slowly.
+  // Late belt-and-braces pass: portal roots mount at body level and their
+  // overlays one level down — check both, plus self-declared dialogs.
   setInterval(() => {
     if (!baselined || !document.body) return;
-    for (const el of document.body.children) if (isPopup(el)) zap(el);
+    for (const el of document.body.children) {
+      consider(el);
+      for (const child of el.children) consider(child);
+    }
+    try { for (const el of document.querySelectorAll(DIALOGISH)) consider(el); } catch {}
   }, 900);
 })();`;
 
@@ -1042,6 +1070,11 @@ async function recordWork(
     const file = path.join(outDir, 'scroll.webm');
     let durationSec: number;
     let infoPrepSec: number;
+    const runTour = async () => {
+      await page.evaluate(tourScript);
+      const zaps = Number(await page.evaluate('window.__rwZapCount || 0').catch(() => 0));
+      if (zaps) log(`  popup guard hid ${zaps} overlay(s) during recording`);
+    };
 
     if (mode === 'screencast') {
       const framesDir = path.join(outDir, 'frames-tmp');
@@ -1068,7 +1101,7 @@ async function recordWork(
           maxHeight: FRAME_H,
           everyNthFrame: 1,
         });
-        await page.evaluate(tourScript);
+        await runTour();
         await cdp.send('Page.stopScreencast').catch(() => {});
         await page.waitForTimeout(200);
         await context.close();
@@ -1088,7 +1121,7 @@ async function recordWork(
         fs.rmSync(framesDir, { recursive: true, force: true });
       }
     } else {
-      await page.evaluate(tourScript);
+      await runTour();
       const video = page.video();
       await context.close(); // finalizes the recording
       if (!video) return null;
