@@ -86,6 +86,85 @@ const REVEAL_SCRIPT = `(() => {
   return fixed;
 })()`;
 
+// Marketing popups fire on timers, scroll depth and exit intent — a single
+// dismissal pass before recording misses anything that appears mid-tour and
+// it gets baked into the video. This guard runs from document start and
+// keeps hiding them for the page's whole life:
+//  - known popup/cookie vendors are hidden on sight;
+//  - anything that appears AFTER the initial DOM (or announces itself as a
+//    dialog) and is fixed, high-z and covers a big share of the viewport is
+//    hidden too. Elements present at DOMContentLoaded never match the
+//    generic rule, so full-viewport wrappers on transform-scroll sites
+//    (Locomotive/ScrollSmoother — position:fixed by design) are safe.
+//  - popups lock scrolling via inline overflow:hidden; that lock is lifted
+//    whenever something is zapped, or the tour can't scroll at all.
+const POPUP_GUARD_INIT = `(() => {
+  if (window.__rwPopupGuard) return;
+  window.__rwPopupGuard = true;
+  const VENDOR = [
+    '[class*="klaviyo-form" i]', '.klaviyo-form-modal', '[id^="om-"]', '.privy-popup', '.privy-modal',
+    '[id^="sumome-"]', '[class*="mailmunch" i]', '.ju_Con', '[class*="wisepops" i]', '[class*="poptin" i]',
+    '[data-elementor-type="popup"]', '.pum-overlay', '.sgpb-popup-overlay-main-div', '[class*="omnisend" i]',
+    '[class*="justuno" i]', '[id*="hellobar" i]', '.mfp-wrap.mfp-ready', '[class*="newsletter-popup" i]',
+    '[class*="exit-intent" i]', '[id*="exit-intent" i]', '[class*="popup-overlay" i]',
+  ].join(',');
+  const original = new WeakSet();
+  let baselined = false;
+  const baseline = () => {
+    for (const el of document.querySelectorAll('*')) original.add(el);
+    baselined = true;
+  };
+  const isPopup = (el) => {
+    if (!(el instanceof HTMLElement)) return false;
+    try { if (el.matches(VENDOR)) return true; } catch {}
+    if (!baselined) return false;
+    const dialogish = el.matches('[role="dialog"], [aria-modal="true"], [class*="popup" i], [id*="popup" i], [class*="newsletter" i]');
+    if (original.has(el) && !dialogish) return false;
+    const cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') return false;
+    if ((parseInt(cs.zIndex, 10) || 0) < 900) return false;
+    const r = el.getBoundingClientRect();
+    const cover = (r.width * r.height) / (innerWidth * innerHeight);
+    return cover > 0.35 || (dialogish && cover > 0.08);
+  };
+  const zap = (el) => {
+    if (el.hasAttribute('data-rw-zap')) return;
+    el.setAttribute('data-rw-zap', '');
+    // Popups freeze the page behind them with inline overflow:hidden.
+    for (const n of [document.documentElement, document.body]) {
+      if (n && n.style.overflow === 'hidden') n.style.overflow = '';
+    }
+  };
+  const sweep = (root) => {
+    if (isPopup(root)) { zap(root); return; }
+    if (!(root instanceof HTMLElement) || !root.querySelectorAll) return;
+    try {
+      for (const el of root.querySelectorAll(VENDOR + ', [role="dialog"], [aria-modal="true"]')) {
+        if (isPopup(el)) zap(el);
+      }
+    } catch {}
+  };
+  const style = document.createElement('style');
+  style.textContent = '[data-rw-zap]{display:none !important;visibility:hidden !important;}';
+  const attach = () => { (document.head || document.documentElement).appendChild(style); };
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.type === 'childList') for (const n of m.addedNodes) sweep(n);
+      else if (m.target instanceof HTMLElement && isPopup(m.target)) zap(m.target);
+    }
+    // Init scripts run before <html> exists — observe the document node
+    // itself (works with subtree), never document.documentElement.
+  }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'open', 'aria-modal'] });
+  const arm = () => { attach(); baseline(); if (document.body) sweep(document.body); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', arm);
+  else arm();
+  // Late belt-and-braces pass: body-level popups whose signals settle slowly.
+  setInterval(() => {
+    if (!baselined || !document.body) return;
+    for (const el of document.body.children) if (isPopup(el)) zap(el);
+  }, 900);
+})();`;
+
 // WebGL buffers are normally cleared right after compositing, so canvases
 // read back blank and go blank on viewport changes. Force
 // preserveDrawingBuffer at context creation — this runs BEFORE any page
@@ -518,6 +597,7 @@ async function captureWork(
   // Must be registered before the page loads so it patches canvas creation
   // ahead of any site script.
   await context.addInitScript(PRESERVE_WEBGL_INIT);
+  await context.addInitScript(POPUP_GUARD_INIT);
 
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
@@ -825,6 +905,9 @@ async function recordWork(
       ? { recordVideo: { dir: outDir, size: { width: FRAME_W, height: FRAME_H } } }
       : {}),
   });
+  // Delayed/scroll-triggered popups otherwise appear MID-RECORDING, long
+  // after the one-shot dismissal pass, and end up baked into the reel.
+  await context.addInitScript(POPUP_GUARD_INIT);
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
   // The recording starts when the page exists — measure prep from here so
@@ -850,7 +933,13 @@ async function recordWork(
       if (v) await v.delete().catch(() => {});
       return null;
     }
-    await page.evaluate(`document.head.appendChild(Object.assign(document.createElement('style'), { textContent: '::-webkit-scrollbar{display:none!important} html{scrollbar-width:none!important}' })), true`);
+    const hideScrollbars = () =>
+      page
+        .evaluate(
+          `document.head.appendChild(Object.assign(document.createElement('style'), { textContent: '::-webkit-scrollbar{display:none!important} html{scrollbar-width:none!important}' })), true`,
+        )
+        .catch(() => {});
+    await hideScrollbars();
     await page.waitForTimeout(300);
 
     // Detect sections in THIS viewport (positions shift with viewport height
@@ -907,6 +996,29 @@ async function recordWork(
     while (tour.total > 30 && waypoints.length > 1) {
       waypoints = waypoints.slice(0, waypoints.length - 1);
       tour = plan();
+    }
+
+    // The probe pass scrolled bottom-and-back, which fired every scroll-
+    // reveal animation ONCE — reveal libraries (AOS, GSAP ScrollTrigger,
+    // IntersectionObserver fades) latch permanently, so the tour would
+    // record a page that never animates. Reload to reset that state: the
+    // warm pass left assets in the HTTP cache, sections/maxScroll are
+    // already measured, and the popup guard eats anything that re-fires.
+    // If the reload itself fails, record the warmed page instead.
+    const reloaded = await page
+      .reload({ waitUntil: 'domcontentloaded', timeout: 20_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (reloaded) {
+      await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+      await dismissCookieBanners(page);
+      await dismissOverlays(page);
+      await page.evaluate(FONTS_SCRIPT).catch(() => {});
+      await page.evaluate(FORCE_LAZY_SCRIPT).catch(() => {});
+      await hideScrollbars();
+      await page.waitForTimeout(700);
+    } else {
+      log('  reload for animation replay failed — recording the warmed page');
     }
 
     const prepSec = (Date.now() - t0) / 1000;
